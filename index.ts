@@ -709,50 +709,130 @@ async function startXmpp(cfg: any, contacts: any, log: any, onMessage: (from: st
       // Strip resource from sender JID for contact check
       const fromBareJid = from.split("/")[0];
       
-      // Check for slash commands (only in direct messages for now)
-      if (body.startsWith('/') && messageType === "chat") {
-        console.log(`Slash command detected from ${fromBareJid}: ${body}`);
+       // Check for slash commands (in both chat and groupchat)
+       // Behavior:
+       // - Groupchat: Only plugin commands are processed locally, others ignored (not forwarded to agents)
+       // - Chat: Plugin commands handled locally, /help also forwarded to agent
+       // - Chat non-plugin commands: Forwarded to agent only if sender is contact
+       // Plugin commands: list, add, remove, admins, whoami, join, rooms, leave, invite, whiteboard, help
+       if (body && body.startsWith('/')) {
+          console.log(`[SLASH] Command detected from ${from} (bare=${fromBareJid}, type=${messageType}): ${body}`);
+          console.log(`[SLASH] Body starts with '/', length=${body.length}, first char='${body[0]}'`);
+         
+         // Extract room and nick for groupchat
+         const roomJid = messageType === "groupchat" ? from.split("/")[0] : null;
+         const nick = messageType === "groupchat" ? from.split("/")[1] || "" : null;
+         const botNick = roomJid ? roomNicks.get(roomJid) : null;
+         
+         // Parse command and arguments
+         const parts = body.trim().split(/\s+/);
+         const command = parts[0].substring(1).toLowerCase(); // Remove leading '/'
+         const args = parts.slice(1);
         
-        // Parse command and arguments
-        const parts = body.trim().split(/\s+/);
-        const command = parts[0].substring(1).toLowerCase(); // Remove leading '/'
-        const args = parts.slice(1);
+         // Helper to send reply (works for both chat and groupchat)
+          const sendReply = async (replyText: string) => {
+            try {
+              // For groupchat, send to room JID only (without nick)
+              let toAddress = from;
+              if (messageType === "groupchat") {
+                if (roomJid) {
+                  toAddress = roomJid;
+                } else {
+                  console.error(`[SENDREPLY ERROR] roomJid is null for groupchat message! from=${from}`);
+                }
+              }
+              console.log(`[SENDREPLY] messageType=${messageType}, from=${from}, roomJid=${roomJid}, toAddress=${toAddress}`);
+              const message = xml("message", { type: messageType, to: toAddress }, xml("body", {}, replyText));
+              await xmpp.send(message);
+              console.log(`Command reply sent to ${toAddress} (type=${messageType}): ${replyText}`);
+            } catch (err) {
+              console.error("Error sending command reply:", err);
+              console.error("Error details:", err.message || err);
+            }
+          };
         
-        // Helper to send reply
-        const sendReply = async (replyText: string) => {
-          try {
-            const message = xml("message", { type: "chat", to: from }, xml("body", {}, replyText));
-            await xmpp.send(message);
-            console.log(`Command reply sent to ${from}: ${replyText}`);
-          } catch (err) {
-            console.error("Error sending command reply:", err);
+        // Define plugin-specific commands
+        const pluginCommands = new Set(['list', 'add', 'remove', 'admins', 'whoami', 'join', 'rooms', 'leave', 'invite', 'whiteboard', 'help']);
+        const isPluginCommand = pluginCommands.has(command);
+        
+        // Groupchat handling: only process plugin commands, ignore others
+        console.log(`[SLASH] Groupchat check: type=${messageType}, isPluginCommand=${isPluginCommand}`);
+        if (messageType === "groupchat") {
+          if (!isPluginCommand) {
+            console.log(`Ignoring non-plugin slash command in groupchat: /${command}`);
+            console.log(`[SLASH] Returning early, not forwarding non-plugin command`);
+            return; // DO NOT forward to agents
           }
-        };
+          // For plugin commands in groupchat, continue to handle locally
+          console.log(`Processing plugin command in groupchat: /${command}`);
+        }
         
-        // Process commands
-        try {
-          switch (command) {
+        // Chat handling: plugin commands handled locally, non-plugin forwarded if contact
+        console.log(`[SLASH] Chat check: type=${messageType}, isPluginCommand=${isPluginCommand}`);
+        if (messageType === "chat") {
+          if (isPluginCommand) {
+            // Plugin command in chat - handle locally (except /help special case)
+            console.log(`Processing plugin command in chat: /${command}`);
+          } else {
+            // Non-plugin command in chat - only forward if sender is contact
+            if (contacts.exists(fromBareJid)) {
+              console.log(`Forwarding non-plugin slash command from contact to agent: /${command}`);
+               // Forward to agent for clawdbot processing
+               console.log(`[SLASH] Forwarding non-plugin command to agent: /${command}`);
+               onMessage(fromBareJid, body, { type: "chat", mediaUrls, mediaPaths });
+            } else {
+              console.log(`Ignoring non-plugin slash command from non-contact: /${command}`);
+               await sendReply(`❌ Unknown command: /${command}. You must be a contact to use bot commands.`);
+               console.log(`[SLASH] Returning early, not forwarding non-plugin command from non-contact`);
+             }
+             return; // Stop further processing
+          }
+        }
+        
+         // Process plugin commands (both chat and groupchat)
+         try {
+           // Helper to check admin access (works differently for chat vs groupchat)
+           const checkAdminAccess = (): boolean => {
+             if (messageType === "chat") {
+               return contacts.isAdmin(fromBareJid);
+             } else {
+               // In groupchat, admin commands not available (can't verify user identity)
+               return false;
+             }
+           };
+           
+           switch (command) {
             case 'help':
-                await sendReply(`Available commands:
-/list - Show contacts (admin only)
-/add <jid> [name] - Add contact (admin only)
-/remove <jid> - Remove contact (admin only)
-/admins - List admins (admin only)
-/whoami - Show your JID and admin status
-/join <room> [nick] - Join MUC room (admin only)
-/rooms - List joined rooms (admin only)
-/leave <room> - Leave MUC room (admin only)
-/invite <contact> <room> - Invite contact to room (admin only)
+                 await sendReply(`Available commands (groupchat: only whoami, whiteboard, help):
+/list - Show contacts (admin only - direct chat)
+/add <jid> [name] - Add contact (admin only - direct chat)
+/remove <jid> - Remove contact (admin only - direct chat)
+/admins - List admins (admin only - direct chat)
+/whoami - Show your info (room/nick in groupchat)
+/join <room> [nick] - Join MUC room (admin only - direct chat)
+/rooms - List joined rooms (admin only - direct chat)
+/leave <room> - Leave MUC room (admin only - direct chat)
+/invite <contact> <room> - Invite contact to room (admin only - direct chat)
 /whiteboard - Whiteboard drawing and image sharing
 /help - Show this help`);
+              
+               // SPECIAL CASE: /help forwards to agent ONLY in direct chat (not groupchat)
+               if (messageType === "chat" && contacts.exists(fromBareJid)) {
+                  console.log(`Forwarding /help to agent for additional help (direct chat only)`);
+                  console.log(`[SLASH] Forwarding /help to agent (chat)`);
+                  onMessage(fromBareJid, body, { type: "chat", mediaUrls, mediaPaths });
+               }
+               // NO FORWARDING in groupchat - only local processing
               return; // Stop further processing
               
-            case 'list':
-              // Admin only
-              if (!contacts.isAdmin(fromBareJid)) {
-                await sendReply("❌ Permission denied. Admin access required.");
-                return;
-              }
+             case 'list':
+               // Admin only - not available in groupchat
+               if (!checkAdminAccess()) {
+                 await sendReply(messageType === "groupchat" 
+                   ? "❌ Admin commands not available in groupchat. Use direct message."
+                   : "❌ Permission denied. Admin access required.");
+                 return;
+               }
               const contactList = contacts.list();
               if (contactList.length === 0) {
                 await sendReply("No contacts configured.");
@@ -762,12 +842,14 @@ async function startXmpp(cfg: any, contacts: any, log: any, onMessage: (from: st
               }
               return;
               
-            case 'add':
-              // Admin only
-              if (!contacts.isAdmin(fromBareJid)) {
-                await sendReply("❌ Permission denied. Admin access required.");
-                return;
-              }
+             case 'add':
+               // Admin only - not available in groupchat
+               if (!checkAdminAccess()) {
+                 await sendReply(messageType === "groupchat" 
+                   ? "❌ Admin commands not available in groupchat. Use direct message."
+                   : "❌ Permission denied. Admin access required.");
+                 return;
+               }
               if (args.length === 0) {
                 await sendReply("Usage: /add <jid> [name]");
                 return;
@@ -790,12 +872,14 @@ async function startXmpp(cfg: any, contacts: any, log: any, onMessage: (from: st
                }
                return;
               
-            case 'remove':
-              // Admin only
-              if (!contacts.isAdmin(fromBareJid)) {
-                await sendReply("❌ Permission denied. Admin access required.");
-                return;
-              }
+             case 'remove':
+               // Admin only - not available in groupchat
+               if (!checkAdminAccess()) {
+                 await sendReply(messageType === "groupchat" 
+                   ? "❌ Admin commands not available in groupchat. Use direct message."
+                   : "❌ Permission denied. Admin access required.");
+                 return;
+               }
               if (args.length === 0) {
                 await sendReply("Usage: /remove <jid>");
                 return;
@@ -809,12 +893,14 @@ async function startXmpp(cfg: any, contacts: any, log: any, onMessage: (from: st
               }
               return;
               
-            case 'admins':
-              // Admin only
-              if (!contacts.isAdmin(fromBareJid)) {
-                await sendReply("❌ Permission denied. Admin access required.");
-                return;
-              }
+             case 'admins':
+               // Admin only - not available in groupchat
+               if (!checkAdminAccess()) {
+                 await sendReply(messageType === "groupchat" 
+                   ? "❌ Admin commands not available in groupchat. Use direct message."
+                   : "❌ Permission denied. Admin access required.");
+                 return;
+               }
               const adminList = contacts.listAdmins();
               if (adminList.length === 0) {
                 await sendReply("No admins configured.");
@@ -824,18 +910,29 @@ async function startXmpp(cfg: any, contacts: any, log: any, onMessage: (from: st
               }
               return;
               
-            case 'whoami':
-              const isAdmin = contacts.isAdmin(fromBareJid);
-              const isContact = contacts.exists(fromBareJid);
-              await sendReply(`JID: ${fromBareJid}\nAdmin: ${isAdmin ? '✅ Yes' : '❌ No'}\nContact: ${isContact ? '✅ Yes' : '❌ No'}`);
-              return;
+             case 'whoami':
+               if (messageType === "groupchat") {
+                 // In groupchat, show room and nick info
+                 const roomJid = from.split("/")[0];
+                 const nick = from.split("/")[1] || "";
+                 const botNick = roomNicks.get(roomJid);
+                 await sendReply(`Room: ${roomJid}\nNick: ${nick}\nBot nick: ${botNick || "Not joined"}`);
+               } else {
+                 // In direct chat, show JID-based info
+                 const isAdmin = contacts.isAdmin(fromBareJid);
+                 const isContact = contacts.exists(fromBareJid);
+                 await sendReply(`JID: ${fromBareJid}\nAdmin: ${isAdmin ? '✅ Yes' : '❌ No'}\nContact: ${isContact ? '✅ Yes' : '❌ No'}`);
+               }
+               return;
               
-            case 'join':
-              // Admin only
-              if (!contacts.isAdmin(fromBareJid)) {
-                await sendReply("❌ Permission denied. Admin access required.");
-                return;
-              }
+             case 'join':
+               // Admin only - not available in groupchat
+               if (!checkAdminAccess()) {
+                 await sendReply(messageType === "groupchat" 
+                   ? "❌ Admin commands not available in groupchat. Use direct message."
+                   : "❌ Permission denied. Admin access required.");
+                 return;
+               }
               if (args.length === 0) {
                 await sendReply("Usage: /join <room> [nick]");
                 return;
@@ -862,12 +959,14 @@ async function startXmpp(cfg: any, contacts: any, log: any, onMessage: (from: st
               }
               return;
               
-            case 'rooms':
-              // Admin only
-              if (!contacts.isAdmin(fromBareJid)) {
-                await sendReply("❌ Permission denied. Admin access required.");
-                return;
-              }
+             case 'rooms':
+               // Admin only - not available in groupchat
+               if (!checkAdminAccess()) {
+                 await sendReply(messageType === "groupchat" 
+                   ? "❌ Admin commands not available in groupchat. Use direct message."
+                   : "❌ Permission denied. Admin access required.");
+                 return;
+               }
               const rooms = Array.from(joinedRooms);
               if (rooms.length === 0) {
                 await sendReply("Not currently joined to any rooms. Use /join <room> to join a room.");
@@ -877,12 +976,14 @@ async function startXmpp(cfg: any, contacts: any, log: any, onMessage: (from: st
               }
               return;
               
-            case 'leave':
-              // Admin only
-              if (!contacts.isAdmin(fromBareJid)) {
-                await sendReply("❌ Permission denied. Admin access required.");
-                return;
-              }
+             case 'leave':
+               // Admin only - not available in groupchat
+               if (!checkAdminAccess()) {
+                 await sendReply(messageType === "groupchat" 
+                   ? "❌ Admin commands not available in groupchat. Use direct message."
+                   : "❌ Permission denied. Admin access required.");
+                 return;
+               }
               if (args.length === 0) {
                 await sendReply("Usage: /leave <room>");
                 return;
@@ -906,12 +1007,14 @@ async function startXmpp(cfg: any, contacts: any, log: any, onMessage: (from: st
               }
               return;
               
-            case 'invite':
-              // Admin only
-              if (!contacts.isAdmin(fromBareJid)) {
-                await sendReply("❌ Permission denied. Admin access required.");
-                return;
-              }
+             case 'invite':
+               // Admin only - not available in groupchat
+               if (!checkAdminAccess()) {
+                 await sendReply(messageType === "groupchat" 
+                   ? "❌ Admin commands not available in groupchat. Use direct message."
+                   : "❌ Permission denied. Admin access required.");
+                 return;
+               }
               if (args.length < 2) {
                 await sendReply("Usage: /invite <contact> <room>");
                 return;
@@ -970,8 +1073,9 @@ async function startXmpp(cfg: any, contacts: any, log: any, onMessage: (from: st
                         return;
                       }
                       
-                      // Forward to agent with whiteboard metadata
-                      onMessage(roomJid, whiteboardBody, { 
+                       // Forward to agent with whiteboard metadata
+                       console.log(`[SLASH] Forwarding whiteboard draw to agent (groupchat): "${prompt}"`);
+                       onMessage(roomJid, whiteboardBody, { 
                         type: "groupchat", 
                         room: roomJid, 
                         nick, 
@@ -981,9 +1085,10 @@ async function startXmpp(cfg: any, contacts: any, log: any, onMessage: (from: st
                         whiteboardPrompt: prompt,
                         whiteboardRequest: true
                       });
-                    } else {
-                      // Direct message
-                      onMessage(fromBareJid, whiteboardBody, { 
+                     } else {
+                       // Direct message
+                       console.log(`[SLASH] Forwarding whiteboard draw to agent (chat): "${prompt}"`);
+                       onMessage(fromBareJid, whiteboardBody, { 
                         type: "chat", 
                         mediaUrls: [],
                         mediaPaths: [],
@@ -1016,24 +1121,26 @@ async function startXmpp(cfg: any, contacts: any, log: any, onMessage: (from: st
                         const botNick = roomNicks.get(roomJid);
                         
                         if (!(botNick && nick === botNick)) {
-                          onMessage(roomJid, imageBody, { 
-                            type: "groupchat", 
-                            room: roomJid, 
-                            nick, 
-                            botNick, 
-                            mediaUrls: [imageUrl],
-                            mediaPaths: [],
-                            whiteboardImage: true
-                          });
-                        }
-                      } else {
-                        onMessage(fromBareJid, imageBody, { 
-                          type: "chat", 
-                          mediaUrls: [imageUrl],
-                          mediaPaths: [],
-                          whiteboardImage: true
-                        });
-                      }
+                           console.log(`[SLASH] Forwarding whiteboard send to agent (groupchat): ${imageUrl}`);
+                           onMessage(roomJid, imageBody, { 
+                             type: "groupchat", 
+                             room: roomJid, 
+                             nick, 
+                             botNick, 
+                             mediaUrls: [imageUrl],
+                             mediaPaths: [],
+                             whiteboardImage: true
+                           });
+                         }
+                       } else {
+                         console.log(`[SLASH] Forwarding whiteboard send to agent (chat): ${imageUrl}`);
+                         onMessage(fromBareJid, imageBody, { 
+                           type: "chat", 
+                           mediaUrls: [imageUrl],
+                           mediaPaths: [],
+                           whiteboardImage: true
+                         });
+                       }
                     } catch (err) {
                       await sendReply(`❌ Invalid URL: ${imageUrl}. Please provide a valid http:// or https:// URL.`);
                     }
@@ -1052,19 +1159,33 @@ async function startXmpp(cfg: any, contacts: any, log: any, onMessage: (from: st
                 }
                 return;
                
-             default:
-               await sendReply(`Unknown command: /${command}. Type /help for available commands.`);
-               return;
+              default:
+                // Should not reach here for non-plugin commands (handled earlier)
+                await sendReply(`Unknown command: /${command}. Type /help for available commands.`);
+                return;
           }
         } catch (err) {
           console.error("Error processing slash command:", err);
-          try {
-            await xmpp.send(xml("message", { type: "chat", to: from }, xml("body", {}, "❌ Error processing command.")));
-          } catch {}
+           try {
+             let toAddress = from;
+             if (messageType === "groupchat" && roomJid) {
+               toAddress = roomJid;
+             }
+             await xmpp.send(xml("message", { type: messageType, to: toAddress }, xml("body", {}, "❌ Error processing command.")));
+           } catch {}
         }
+        
+        // If we processed a plugin command, return (don't forward to normal processing)
+        return;
       }
       
       // Normal message processing
+      console.log(`[NORMAL] Processing message (type=${messageType}, body=${body?.substring(0, 50)}${body?.length > 50 ? '...' : ''})`);
+      // Safety check: slash commands should never reach here
+      if (body.startsWith('/')) {
+        console.log(`[ERROR] Slash command reached normal processing! This should not happen.`);
+        return;
+      }
       if (messageType === "groupchat") {
         // MUC message
         const roomJid = from.split("/")[0];
@@ -1081,11 +1202,13 @@ async function startXmpp(cfg: any, contacts: any, log: any, onMessage: (from: st
           console.log(`Ignoring self-message from bot (nick: ${nick})`);
           return;
         }
+        console.log(`[NORMAL] Forwarding groupchat message to agent`);
         onMessage(roomJid, body, { type: "groupchat", room: roomJid, nick, botNick, mediaUrls, mediaPaths });
       } else {
         // Direct message
         if (contacts.exists(fromBareJid)) {
           console.log(`Message from contact ${fromBareJid}, forwarding to agent`);
+          console.log(`[NORMAL] Forwarding chat message to agent`);
           onMessage(fromBareJid, body, { type: "chat", mediaUrls, mediaPaths });
         } else {
           console.log(`Ignoring message from non-contact: ${fromBareJid}`);
