@@ -1,7 +1,11 @@
 import fs from "fs";
 import path from "path";
+import { emptyPluginConfigSchema } from "clawdbot/plugin-sdk";
 
-console.log("XMPP plugin loading at", new Date().toISOString());
+
+
+
+let pluginRegistered = false;
 
 // Global store for XMPP clients by account ID
 export const xmppClients = new Map<string, any>();
@@ -312,16 +316,14 @@ export { addToQueue, getUnprocessedMessages, markAsProcessed, clearOldMessages, 
 
 async function startXmpp(cfg: any, contacts: any, log: any, onMessage: (from: string, body: string, options?: { type?: string, room?: string, nick?: string, botNick?: string, mediaUrls?: string[], mediaPaths?: string[], whiteboardPrompt?: string, whiteboardRequest?: boolean, whiteboardImage?: boolean }) => void) {
   // Helper to get default resource/nick from JID local part
-  const getDefaultResource = () => {
-    const result = cfg.resource || cfg.jid.split("@")[0] || "clawdbot";
-    console.log(`getDefaultResource: cfg.resource=${cfg.resource}, cfg.jid=${cfg.jid}, result=${result}`);
-    return result;
-  };
-  const getDefaultNick = () => {
-    const result = cfg.jid ? cfg.jid.split("@")[0] : "clawdbot";
-    console.log(`getDefaultNick: cfg.jid=${cfg.jid}, result=${result}`);
-    return result;
+   const getDefaultResource = () => {
+     const result = cfg?.resource || cfg?.jid?.split("@")[0] || "clawdbot";
+     return result;
    };
+   const getDefaultNick = () => {
+     const result = cfg.jid ? cfg.jid.split("@")[0] : "clawdbot";
+     return result;
+    };
    
    // File download helper for inbound attachments (available in stanza handler)
    const downloadFile = async (url: string, tempDir: string): Promise<string> => {
@@ -377,12 +379,12 @@ async function startXmpp(cfg: any, contacts: any, log: any, onMessage: (from: st
    
    console.log("Starting XMPP connection with TLS rejection disabled");
   console.log("startXmpp config:", {
-    service: cfg.service,
-    domain: cfg.domain,
-    jid: cfg.jid,
-    resource: cfg.resource,
-    hasResource: cfg.resource !== undefined,
-    jidLocalPart: cfg.jid ? cfg.jid.split("@")[0] : 'undefined'
+    service: cfg?.service,
+    domain: cfg?.domain,
+    jid: cfg?.jid,
+    resource: cfg?.resource,
+    hasResource: cfg?.resource !== undefined,
+    jidLocalPart: cfg?.jid ? cfg.jid.split("@")[0] : 'undefined'
   });
   
   // Lazy load @xmpp/client module
@@ -394,14 +396,14 @@ async function startXmpp(cfg: any, contacts: any, log: any, onMessage: (from: st
   
   const { client, xml } = xmppClientModule;
   
-   const xmpp = client({
-     service: cfg.service,
-     domain: cfg.domain,
-     username: cfg.jid.split("@")[0],
-     password: cfg.password,
-      resource: getDefaultResource(),
-     tls: { rejectUnauthorized: false }
-   });
+    const xmpp = client({
+      service: cfg?.service,
+      domain: cfg?.domain,
+      username: cfg?.jid?.split("@")[0],
+      password: cfg?.password,
+       resource: getDefaultResource(),
+      tls: { rejectUnauthorized: false }
+    });
 
    // Helper to resolve room JID - add conference domain if missing
    const resolveRoomJid = (room: string): string => {
@@ -456,7 +458,6 @@ async function startXmpp(cfg: any, contacts: any, log: any, onMessage: (from: st
     }
 
    xmpp.on("stanza", async (stanza: any) => {
-    console.log("XMPP stanza received:", stanza.toString());
     
     if (stanza.is("presence")) {
       const from = stanza.attrs.from;
@@ -552,52 +553,43 @@ async function startXmpp(cfg: any, contacts: any, log: any, onMessage: (from: st
     
     if (stanza.is("iq")) {
       const from = stanza.attrs.from;
-      const to = stanza.attrs.to;
-      const type = stanza.attrs.type;
-      const id = stanza.attrs.id;
-      console.log(`IQ stanza received - Type: ${type}, From: ${from}, To: ${to}, ID: ${id}`);
-      
-      // Handle SI File Transfer requests (XEP-0096)
-      if (type === "set") {
-        const si = stanza.getChild("si", "http://jabber.org/protocol/si");
-        if (si) {
-          console.log(`SI file transfer offer from ${from}`);
-          // Check for file transfer profile
-          const file = si.getChild("file", "http://jabber.org/protocol/si/profile/file-transfer");
-          if (file) {
-            const filename = file.attrs.name || "unknown";
-            const size = file.attrs.size ? parseInt(file.attrs.size) : 0;
-            console.log(`File offer: ${filename} (${size} bytes)`);
-            
-            // Check for supported stream methods
-            const feature = si.getChild("feature", "http://jabber.org/protocol/feature-neg");
-            let supportedMethod = null;
-            if (feature) {
-              const streamMethods = feature.getChildren("field");
-              for (const field of streamMethods) {
-                const method = field.getChildText("value");
-                if (method === "http://jabber.org/protocol/ibb") {
-                  supportedMethod = method;
-                  break;
-                }
-              }
-            }
-            
-            if (supportedMethod === "http://jabber.org/protocol/ibb") {
-              console.log(`Accepting SI file transfer with IBB: ${filename}`);
-              // Capture session ID from SI element
-              const sid = si.attrs.sid;
-              if (!sid) {
-                console.log("No SID in SI, rejecting");
-                const errorIq = xml("iq", { to: from, type: "error", id },
-                  xml("error", { type: "cancel" },
-                    xml("bad-request", { xmlns: "urn:ietf:params:xml:ns:xmpp-stanzas" }),
-                    xml("text", { xmlns: "urn:ietf:params:xml:ns:xmpp-stanzas" }, "Missing SID")
-                  )
-                );
-                await xmpp.send(errorIq);
-                return;
-              }
+       const to = stanza.attrs.to;
+       const type = stanza.attrs.type;
+       const id = stanza.attrs.id;
+
+       if (type === "set") {
+         const si = stanza.getChild("si", "http://jabber.org/protocol/si");
+         if (si) {
+           const file = si.getChild("file", "http://jabber.org/protocol/si/profile/file-transfer");
+           if (file) {
+             const filename = file.attrs.name || "unknown";
+             const size = file.attrs.size ? parseInt(file.attrs.size) : 0;
+
+             const feature = si.getChild("feature", "http://jabber.org/protocol/feature-neg");
+             let supportedMethod = null;
+             if (feature) {
+               const streamMethods = feature.getChildren("field");
+               for (const field of streamMethods) {
+                 const method = field.getChildText("value");
+                 if (method === "http://jabber.org/protocol/ibb") {
+                   supportedMethod = method;
+                   break;
+                 }
+               }
+             }
+
+             if (supportedMethod === "http://jabber.org/protocol/ibb") {
+               const sid = si.attrs.sid;
+               if (!sid) {
+                 const errorIq = xml("iq", { to: from, type: "error", id },
+                   xml("error", { type: "cancel" },
+                     xml("bad-request", { xmlns: "urn:ietf:params:xml:ns:xmpp-stanzas" }),
+                     xml("text", { xmlns: "urn:ietf:params:xml:ns:xmpp-stanzas" }, "Missing SID")
+                   )
+                 );
+                 await xmpp.send(errorIq);
+                 return;
+               }
               
               // Store IBB session
               ibbSessions.set(sid, {
@@ -629,108 +621,93 @@ async function startXmpp(cfg: any, contacts: any, log: any, onMessage: (from: st
         }
       }
        // Handle IBB (In-Band Bytestreams) requests
-       const ibbOpen = stanza.getChild("open", "http://jabber.org/protocol/ibb");
-       if (ibbOpen) {
-         const sid = ibbOpen.attrs.sid;
-         const session = ibbSessions.get(sid);
-         if (!session) {
-           console.log(`Unknown IBB session ${sid}, rejecting`);
-           const errorIq = xml("iq", { to: from, type: "error", id },
-             xml("error", { type: "cancel" },
-               xml("item-not-found", { xmlns: "urn:ietf:params:xml:ns:xmpp-stanzas" })
-             )
-           );
-           await xmpp.send(errorIq);
-           return;
-         }
-         // Accept open
-         const resultIq = xml("iq", { to: from, type: "result", id });
-         await xmpp.send(resultIq);
-         console.log(`IBB session ${sid} opened for file ${session.filename}`);
-         return;
-       }
-       
-       const ibbData = stanza.getChild("data", "http://jabber.org/protocol/ibb");
-       if (ibbData) {
-         const sid = ibbData.attrs.sid;
-         const session = ibbSessions.get(sid);
-         if (!session) {
-           console.log(`Unknown IBB session ${sid} for data, rejecting`);
-           const errorIq = xml("iq", { to: from, type: "error", id },
-             xml("error", { type: "cancel" },
-               xml("item-not-found", { xmlns: "urn:ietf:params:xml:ns:xmpp-stanzas" })
-             )
-           );
-           await xmpp.send(errorIq);
-           return;
-         }
-         const base64Data = ibbData.getText();
-         try {
-           const chunk = Buffer.from(base64Data, 'base64');
-           session.data = Buffer.concat([session.data, chunk]);
-           session.received += chunk.length;
-           console.log(`IBB session ${sid} received ${chunk.length} bytes, total ${session.received}/${session.size}`);
-           // Acknowledge data
-           const resultIq = xml("iq", { to: from, type: "result", id });
-           await xmpp.send(resultIq);
-           
-           // If we've received all data, close session and process file
-           if (session.size > 0 && session.received >= session.size) {
-             console.log(`File ${session.filename} received completely (${session.received} bytes)`);
-             // Save file to downloads directory
-             const tempDir = path.join(cfg.dataDir, 'downloads');
-             if (!fs.existsSync(tempDir)) {
-               fs.mkdirSync(tempDir, { recursive: true });
-             }
-             const filePath = path.join(tempDir, session.filename);
-             await fs.promises.writeFile(filePath, session.data);
-             console.log(`File saved to ${filePath}`);
-             ibbSessions.delete(sid);
-             // TODO: Notify about incoming file
-           }
-         } catch (err) {
-           console.error(`Error processing IBB data:`, err);
-           const errorIq = xml("iq", { to: from, type: "error", id },
-             xml("error", { type: "cancel" },
-               xml("bad-request", { xmlns: "urn:ietf:params:xml:ns:xmpp-stanzas" })
-             )
-           );
-           await xmpp.send(errorIq);
-         }
-         return;
-       }
-       
-       const ibbClose = stanza.getChild("close", "http://jabber.org/protocol/ibb");
-       if (ibbClose) {
-         const sid = ibbClose.attrs.sid;
-         const session = ibbSessions.get(sid);
-         if (session) {
-           console.log(`IBB session ${sid} closed, received ${session.received} bytes`);
-           // Save file if we have data
-           if (session.received > 0) {
-             const tempDir = path.join(cfg.dataDir, 'downloads');
-             if (!fs.existsSync(tempDir)) {
-               fs.mkdirSync(tempDir, { recursive: true });
-             }
-             const filePath = path.join(tempDir, session.filename);
-             await fs.promises.writeFile(filePath, session.data);
-             console.log(`File saved to ${filePath}`);
-             // TODO: Notify about incoming file
-           }
-           ibbSessions.delete(sid);
-         }
-         const resultIq = xml("iq", { to: from, type: "result", id });
-         await xmpp.send(resultIq);
-         return;
-       }
+        const ibbOpen = stanza.getChild("open", "http://jabber.org/protocol/ibb");
+        if (ibbOpen) {
+          const sid = ibbOpen.attrs.sid;
+          const session = ibbSessions.get(sid);
+          if (!session) {
+            const errorIq = xml("iq", { to: from, type: "error", id },
+              xml("error", { type: "cancel" },
+                xml("item-not-found", { xmlns: "urn:ietf:params:xml:ns:xmpp-stanzas" })
+              )
+            );
+            await xmpp.send(errorIq);
+            return;
+          }
+          const resultIq = xml("iq", { to: from, type: "result", id });
+          await xmpp.send(resultIq);
+          return;
+        }
+
+        const ibbData = stanza.getChild("data", "http://jabber.org/protocol/ibb");
+        if (ibbData) {
+          const sid = ibbData.attrs.sid;
+          const session = ibbSessions.get(sid);
+          if (!session) {
+            const errorIq = xml("iq", { to: from, type: "error", id },
+              xml("error", { type: "cancel" },
+                xml("item-not-found", { xmlns: "urn:ietf:params:xml:ns:xmpp-stanzas" })
+              )
+            );
+            await xmpp.send(errorIq);
+            return;
+          }
+          const base64Data = ibbData.getText();
+          try {
+            const chunk = Buffer.from(base64Data, 'base64');
+            session.data = Buffer.concat([session.data, chunk]);
+            session.received += chunk.length;
+            const resultIq = xml("iq", { to: from, type: "result", id });
+            await xmpp.send(resultIq);
+
+            if (session.size > 0 && session.received >= session.size) {
+              const tempDir = path.join(cfg.dataDir, 'downloads');
+              if (!fs.existsSync(tempDir)) {
+                fs.mkdirSync(tempDir, { recursive: true });
+              }
+              const filePath = path.join(tempDir, session.filename);
+              await fs.promises.writeFile(filePath, session.data);
+              ibbSessions.delete(sid);
+            }
+          } catch (err) {
+            console.error(`Error processing IBB data:`, err);
+            const errorIq = xml("iq", { to: from, type: "error", id },
+              xml("error", { type: "cancel" },
+                xml("bad-request", { xmlns: "urn:ietf:params:xml:ns:xmpp-stanzas" })
+              )
+            );
+            await xmpp.send(errorIq);
+          }
+          return;
+        }
+
+        const ibbClose = stanza.getChild("close", "http://jabber.org/protocol/ibb");
+        if (ibbClose) {
+          const sid = ibbClose.attrs.sid;
+          const session = ibbSessions.get(sid);
+          if (session) {
+            if (session.received > 0) {
+              const tempDir = path.join(cfg.dataDir, 'downloads');
+              if (!fs.existsSync(tempDir)) {
+                fs.mkdirSync(tempDir, { recursive: true });
+              }
+              const filePath = path.join(tempDir, session.filename);
+              await fs.promises.writeFile(filePath, session.data);
+            }
+            ibbSessions.delete(sid);
+          }
+          const resultIq = xml("iq", { to: from, type: "result", id });
+          await xmpp.send(resultIq);
+          return;
+        }
        
          // Handle vCard requests (XEP-0054)
          const vcardElement = stanza.getChild("vCard", "vcard-temp");
          if (vcardElement) {
            console.log(`vCard request from ${from}, type: ${type}`);
            if (type === "get") {
-             // Extract local part from JID for nickname fallback
-             const localPart = cfg.jid.split("@")[0];
+              // Extract local part from JID for nickname fallback
+              const localPart = cfg?.jid?.split("@")[0] || "clawdbot";
              const fn = vcard.getFN() || `ClawdBot (${localPart})`;
              const nickname = vcard.getNickname() || localPart;
              const url = vcard.getURL() || "https://github.com/anomalyco/clawdbot";
@@ -770,31 +747,28 @@ async function startXmpp(cfg: any, contacts: any, log: any, onMessage: (from: st
       
       // Check for MUC invites
       const xElement = stanza.getChild('x', 'http://jabber.org/protocol/muc#user');
-      if (xElement) {
-        const inviteElement = xElement.getChild('invite');
-        if (inviteElement) {
-          const inviter = inviteElement.attrs.from || from.split('/')[0];
-          const reason = inviteElement.getChildText('reason') || 'No reason given';
-          console.log(`🤝 Received MUC invite to room ${from} from ${inviter}: ${reason}`);
-          
-          // Auto-accept invite by joining the room
-          try {
-            const room = from.split('/')[0];
-            const presence = xml("presence", { to: `${room}/${getDefaultNick()}` },
-              xml("x", { xmlns: "http://jabber.org/protocol/muc" },
-                xml("history", { maxstanzas: "0" })
-              )
-            );
-            await xmpp.send(presence);
-            joinedRooms.add(room);
-            roomNicks.set(room, getDefaultNick());
-            console.log(`✅ Auto-accepted invite to room ${room}`);
-          } catch (err) {
-            console.error(`❌ Failed to accept invite to room ${from}:`, err);
-          }
-          return;
-        }
-      }
+       if (xElement) {
+         const inviteElement = xElement.getChild('invite');
+         if (inviteElement) {
+           const inviter = inviteElement.attrs.from || from.split('/')[0];
+           const reason = inviteElement.getChildText('reason') || 'No reason given';
+
+           try {
+             const room = from.split('/')[0];
+             const presence = xml("presence", { to: `${room}/${getDefaultNick()}` },
+               xml("x", { xmlns: "http://jabber.org/protocol/muc" },
+                 xml("history", { maxstanzas: "0" })
+               )
+             );
+             await xmpp.send(presence);
+             joinedRooms.add(room);
+             roomNicks.set(room, getDefaultNick());
+           } catch (err) {
+             console.error(`❌ Failed to accept invite to room ${from}:`, err);
+           }
+           return;
+         }
+       }
       
       // Check for room configuration forms (MUC owner namespace)
       const mucOwnerX = stanza.getChild('x', 'http://jabber.org/protocol/muc#owner');
@@ -803,55 +777,44 @@ async function startXmpp(cfg: any, contacts: any, log: any, onMessage: (from: st
         if (xDataForm && xDataForm.attrs.type === 'form') {
           console.log(`📋 Received room configuration form for room ${from}`);
           
-          // Try to auto-configure room by submitting the form with default values
-          try {
-            // Create a submitted form with same fields but empty values (use defaults)
-            const formId = xDataForm.getChildText('title') || 'Room Configuration';
-            console.log(`Auto-configuring room: ${formId}`);
-            
-            // Build a submitted form
-            const submittedForm = xml("x", { xmlns: "jabber:x:data", type: "submit" });
-            
-            // Copy field definitions but with empty values
-            const fields = xDataForm.getChildren('field');
-            for (const field of fields) {
-              const varName = field.attrs.var;
-              if (varName) {
-                submittedForm.append(xml("field", { var: varName }));
-              }
-            }
-            
-            // Send the configuration submission
-            const configMessage = xml("message", { to: from },
-              xml("x", { xmlns: "http://jabber.org/protocol/muc#owner" },
-                submittedForm
-              )
-            );
-            await xmpp.send(configMessage);
-            console.log(`✅ Sent room configuration submission for ${from}`);
-            roomsPendingConfig.delete(from.split('/')[0]);
-          } catch (err) {
-            console.error(`❌ Failed to send room configuration:`, err);
-          }
-          return;
-        }
-      }
-       // Check for file attachments (XEP-0066: Out of Band Data)
-       const oobElement = stanza.getChild('x', 'jabber:x:oob');
-       let mediaUrls: string[] = [];
-       let mediaPaths: string[] = [];
-       if (oobElement) {
-         const url = oobElement.getChildText('url');
-         if (url) {
-           mediaUrls.push(url);
-           console.log(`Detected file attachment: ${url}`);
-           
-           // Download file locally for agent processing
            try {
-             const localPaths = await processInboundFiles([url]);
-             mediaPaths = localPaths;
-             console.log(`Downloaded file to local paths: ${localPaths.join(', ')}`);
+             const formId = xDataForm.getChildText('title') || 'Room Configuration';
+
+             const submittedForm = xml("x", { xmlns: "jabber:x:data", type: "submit" });
+
+             const fields = xDataForm.getChildren('field');
+             for (const field of fields) {
+               const varName = field.attrs.var;
+               if (varName) {
+                 submittedForm.append(xml("field", { var: varName }));
+               }
+             }
+
+             const configMessage = xml("message", { to: from },
+               xml("x", { xmlns: "http://jabber.org/protocol/muc#owner" },
+                 submittedForm
+               )
+             );
+             await xmpp.send(configMessage);
+             roomsPendingConfig.delete(from.split('/')[0]);
            } catch (err) {
+             console.error(`❌ Failed to send room configuration:`, err);
+           }
+           return;
+         }
+       }
+        const oobElement = stanza.getChild('x', 'jabber:x:oob');
+        let mediaUrls: string[] = [];
+        let mediaPaths: string[] = [];
+        if (oobElement) {
+          const url = oobElement.getChildText('url');
+          if (url) {
+            mediaUrls.push(url);
+
+            try {
+              const localPaths = await processInboundFiles([url]);
+              mediaPaths = localPaths;
+            } catch (err) {
              console.error("Failed to download file, will pass URL only:", err);
            }
          }
@@ -861,7 +824,7 @@ async function startXmpp(cfg: any, contacts: any, log: any, onMessage: (from: st
        const body = stanza.getChildText("body");
        if (!body && mediaUrls.length === 0) return;
       
-      console.log(`Received XMPP message - Type: ${messageType}, From: ${from}, To: ${to}, Body: ${body}`);
+
       
       // Strip resource from sender JID for contact check
       const fromBareJid = from.split("/")[0];
@@ -872,9 +835,7 @@ async function startXmpp(cfg: any, contacts: any, log: any, onMessage: (from: st
        // - Chat: Plugin commands handled locally, /help also forwarded to agent
        // - Chat non-plugin commands: Forwarded to agent only if sender is contact
        // Plugin commands: list, add, remove, admins, whoami, join, rooms, leave, invite, whiteboard, help
-       if (body && body.startsWith('/')) {
-          console.log(`[SLASH] Command detected from ${from} (bare=${fromBareJid}, type=${messageType}): ${body}`);
-          console.log(`[SLASH] Body starts with '/', length=${body.length}, first char='${body[0]}'`);
+        if (body && body.startsWith('/')) {
          
          // Extract room and nick for groupchat
          const roomJid = messageType === "groupchat" ? from.split("/")[0] : null;
@@ -882,7 +843,7 @@ async function startXmpp(cfg: any, contacts: any, log: any, onMessage: (from: st
          const botNick = roomJid ? roomNicks.get(roomJid) : null;
          
          // Parse command and arguments
-         const parts = body.trim().split(/\s+/);
+          const parts = body?.trim()?.split(/\s+/) || [];
          const command = parts[0].substring(1).toLowerCase(); // Remove leading '/'
          const args = parts.slice(1);
         
@@ -898,10 +859,8 @@ async function startXmpp(cfg: any, contacts: any, log: any, onMessage: (from: st
                   console.error(`[SENDREPLY ERROR] roomJid is null for groupchat message! from=${from}`);
                 }
               }
-              console.log(`[SENDREPLY] messageType=${messageType}, from=${from}, roomJid=${roomJid}, toAddress=${toAddress}`);
-              const message = xml("message", { type: messageType, to: toAddress }, xml("body", {}, replyText));
-              await xmpp.send(message);
-              console.log(`Command reply sent to ${toAddress} (type=${messageType}): ${replyText}`);
+               const message = xml("message", { type: messageType, to: toAddress }, xml("body", {}, replyText));
+               await xmpp.send(message);
             } catch (err) {
               console.error("Error sending command reply:", err);
               console.error("Error details:", err.message || err);
@@ -912,39 +871,23 @@ async function startXmpp(cfg: any, contacts: any, log: any, onMessage: (from: st
         const pluginCommands = new Set(['list', 'add', 'remove', 'admins', 'whoami', 'join', 'rooms', 'leave', 'invite', 'whiteboard', 'vcard', 'help']);
         const isPluginCommand = pluginCommands.has(command);
         
-        // Groupchat handling: only process plugin commands, ignore others
-        console.log(`[SLASH] Groupchat check: type=${messageType}, isPluginCommand=${isPluginCommand}`);
-        if (messageType === "groupchat") {
-          if (!isPluginCommand) {
-            console.log(`Ignoring non-plugin slash command in groupchat: /${command}`);
-            console.log(`[SLASH] Returning early, not forwarding non-plugin command`);
-            return; // DO NOT forward to agents
-          }
-          // For plugin commands in groupchat, continue to handle locally
-          console.log(`Processing plugin command in groupchat: /${command}`);
-        }
-        
-        // Chat handling: plugin commands handled locally, non-plugin forwarded if contact
-        console.log(`[SLASH] Chat check: type=${messageType}, isPluginCommand=${isPluginCommand}`);
-        if (messageType === "chat") {
-          if (isPluginCommand) {
-            // Plugin command in chat - handle locally (except /help special case)
-            console.log(`Processing plugin command in chat: /${command}`);
-          } else {
-            // Non-plugin command in chat - only forward if sender is contact
-            if (contacts.exists(fromBareJid)) {
-              console.log(`Forwarding non-plugin slash command from contact to agent: /${command}`);
-               // Forward to agent for clawdbot processing
-               console.log(`[SLASH] Forwarding non-plugin command to agent: /${command}`);
-               onMessage(fromBareJid, body, { type: "chat", mediaUrls, mediaPaths });
-            } else {
-              console.log(`Ignoring non-plugin slash command from non-contact: /${command}`);
-               await sendReply(`❌ Unknown command: /${command}. You must be a contact to use bot commands.`);
-               console.log(`[SLASH] Returning early, not forwarding non-plugin command from non-contact`);
-             }
-             return; // Stop further processing
-          }
-        }
+         if (messageType === "groupchat") {
+           if (!isPluginCommand) {
+             return;
+           }
+         }
+
+         if (messageType === "chat") {
+           if (isPluginCommand) {
+           } else {
+             if (contacts.exists(fromBareJid)) {
+                onMessage(fromBareJid, body, { type: "chat", mediaUrls, mediaPaths });
+             } else {
+                await sendReply(`❌ Unknown command: /${command}. You must be a contact to use bot commands.`);
+              }
+              return;
+           }
+         }
         
          // Process plugin commands (both chat and groupchat)
          try {
@@ -975,23 +918,12 @@ async function startXmpp(cfg: any, contacts: any, log: any, onMessage: (from: st
  /help - Show this help`);
               
                // SPECIAL CASE: /help forwards to agent ONLY in direct chat (not groupchat)
-               if (messageType === "chat" && contacts.exists(fromBareJid)) {
-                  console.log(`Forwarding /help to agent for additional help (direct chat only)`);
-                  console.log(`[SLASH] Forwarding /help to agent (chat)`);
-                  onMessage(fromBareJid, body, { type: "chat", mediaUrls, mediaPaths });
-               }
-               // NO FORWARDING in groupchat - only local processing
-              return; // Stop further processing
-              
-             case 'list':
-               // Admin only - not available in groupchat
-               if (!checkAdminAccess()) {
-                 await sendReply(messageType === "groupchat" 
-                   ? "❌ Admin commands not available in groupchat. Use direct message."
-                   : "❌ Permission denied. Admin access required.");
-                 return;
-               }
-              const contactList = contacts.list();
+                if (messageType === "chat" && contacts.exists(fromBareJid)) {
+                    onMessage(fromBareJid, body, { type: "chat", mediaUrls, mediaPaths });
+                }
+                return;
+
+              case 'list':
               if (contactList.length === 0) {
                 await sendReply("No contacts configured.");
               } else {
@@ -1267,42 +1199,39 @@ async function startXmpp(cfg: any, contacts: any, log: any, onMessage: (from: st
                     const imageUrl = args[1];
                     
                     // Check if we have a valid URL
-                    try {
-                      new URL(imageUrl);
-                      await sendReply(`🖼️ Whiteboard image URL received: ${imageUrl}. Sending via file transfer...`);
-                      
-                      // Forward to agent with image URL
-                      const imageBody = `whiteboard send image: ${imageUrl}`;
-                      if (messageType === "groupchat") {
-                        const roomJid = from.split("/")[0];
-                        const nick = from.split("/")[1] || "";
-                        const botNick = roomNicks.get(roomJid);
-                        
-                        if (!(botNick && nick === botNick)) {
-                           console.log(`[SLASH] Forwarding whiteboard send to agent (groupchat): ${imageUrl}`);
-                           onMessage(roomJid, imageBody, { 
-                             type: "groupchat", 
-                             room: roomJid, 
-                             nick, 
-                             botNick, 
+                     try {
+                       new URL(imageUrl);
+                       await sendReply(`🖼️ Whiteboard image URL received: ${imageUrl}. Sending via file transfer...`);
+
+                       const imageBody = `whiteboard send image: ${imageUrl}`;
+                       if (messageType === "groupchat") {
+                         const roomJid = from.split("/")[0];
+                         const nick = from.split("/")[1] || "";
+                         const botNick = roomNicks.get(roomJid);
+
+                         if (!(botNick && nick === botNick)) {
+                           onMessage(roomJid, imageBody, {
+                             type: "groupchat",
+                             room: roomJid,
+                             nick,
+                             botNick,
                              mediaUrls: [imageUrl],
                              mediaPaths: [],
                              whiteboardImage: true
                            });
                          }
                        } else {
-                         console.log(`[SLASH] Forwarding whiteboard send to agent (chat): ${imageUrl}`);
-                         onMessage(fromBareJid, imageBody, { 
-                           type: "chat", 
+                         onMessage(fromBareJid, imageBody, {
+                           type: "chat",
                            mediaUrls: [imageUrl],
                            mediaPaths: [],
                            whiteboardImage: true
                          });
                        }
-                    } catch (err) {
-                      await sendReply(`❌ Invalid URL: ${imageUrl}. Please provide a valid http:// or https:// URL.`);
-                    }
-                    return;
+                     } catch (err) {
+                       await sendReply(`❌ Invalid URL: ${imageUrl}. Please provide a valid http:// or https:// URL.`);
+                     }
+                     return;
                     
                   case 'status':
                     await sendReply(`✅ Whiteboard support enabled:
@@ -1407,38 +1336,24 @@ Avatar URL: ${data.avatarUrl || '(not set)'}`);
       }
       
       // Normal message processing
-      console.log(`[NORMAL] Processing message (type=${messageType}, body=${body?.substring(0, 50)}${body?.length > 50 ? '...' : ''})`);
-      // Safety check: slash commands should never reach here
       if (body.startsWith('/')) {
-        console.log(`[ERROR] Slash command reached normal processing! This should not happen.`);
         return;
       }
       if (messageType === "groupchat") {
-        // MUC message
         const roomJid = from.split("/")[0];
         const nick = from.split("/")[1] || "";
         if (!nick) {
-          console.log(`Ignoring room message without nick (likely room subject): ${body}`);
           return;
         }
-        console.log(`MUC message from room ${roomJid}, nick ${nick}, forwarding to agent`);
         const botNick = roomNicks.get(roomJid);
-        console.log(`Bot nick for room ${roomJid}: ${botNick}`);
-        // Ignore messages from ourselves
         if (botNick && nick === botNick) {
-          console.log(`Ignoring self-message from bot (nick: ${nick})`);
           return;
         }
-        console.log(`[NORMAL] Forwarding groupchat message to agent`);
         onMessage(roomJid, body, { type: "groupchat", room: roomJid, nick, botNick, mediaUrls, mediaPaths });
       } else {
-        // Direct message
         if (contacts.exists(fromBareJid)) {
-          console.log(`Message from contact ${fromBareJid}, forwarding to agent`);
-          console.log(`[NORMAL] Forwarding chat message to agent`);
           onMessage(fromBareJid, body, { type: "chat", mediaUrls, mediaPaths });
         } else {
-          console.log(`Ignoring message from non-contact: ${fromBareJid}`);
           log.debug(`Ignoring message from non-contact: ${fromBareJid}`);
         }
       }
@@ -1460,104 +1375,88 @@ Avatar URL: ${data.avatarUrl || '(not set)'}`);
       xml("request", { xmlns: "urn:xmpp:http:upload:0", filename, size: size.toString() })
     );
     
-    try {
-      const response = await xmpp.send(requestStanza);
-      console.log("Upload slot response:", response.toString());
-      
-      const slot = response.getChild("slot", "urn:xmpp:http:upload:0");
-      if (!slot) {
-        throw new Error("No upload slot in response");
-      }
-      
-      const putUrl = slot.getChildText("put");
-      const getUrl = slot.getChildText("get");
-      
-      if (!putUrl || !getUrl) {
-        throw new Error("Missing put or get URL in slot");
-      }
-      
-      // Parse optional headers
-      const putHeaders: Record<string, string> = {};
-      const putElement = slot.getChild("put");
-      if (putElement) {
-        const headerElements = putElement.getChildren("header");
-        for (const header of headerElements) {
-          const name = header.attrs.name;
-          const value = header.getText();
-          if (name && value) {
-            putHeaders[name] = value;
-          }
-        }
-      }
-      
-      console.log(`Upload slot obtained: PUT ${putUrl}, GET ${getUrl}`);
-      return { putUrl, getUrl, headers: Object.keys(putHeaders).length > 0 ? putHeaders : undefined };
-    } catch (err) {
-      console.error("Failed to request upload slot:", err);
-      throw err;
-    }
-  };
+     try {
+       const response = await xmpp.send(requestStanza);
+       const slot = response.getChild("slot", "urn:xmpp:http:upload:0");
+       if (!slot) {
+         throw new Error("No upload slot in response");
+       }
 
-  const uploadFileViaHTTP = async (filePath: string, putUrl: string, headers?: Record<string, string>): Promise<void> => {
-    console.log(`Uploading file ${filePath} to ${putUrl}`);
-    
-    try {
-      // Read file
-      const fileBuffer = await fs.promises.readFile(filePath);
-      const fileSize = fileBuffer.length;
-      
-      // Prepare headers
-      const fetchHeaders: Record<string, string> = {
-        'Content-Type': 'application/octet-stream',
-        'Content-Length': fileSize.toString(),
-      };
-      
-      if (headers) {
-        Object.assign(fetchHeaders, headers);
-      }
-      
-      // Upload via PUT
-      const response = await fetch(putUrl, {
-        method: 'PUT',
-        headers: fetchHeaders,
-        body: fileBuffer,
-      });
-      
-      if (!response.ok) {
-        throw new Error(`HTTP upload failed: ${response.status} ${response.statusText}`);
-      }
-      
-      console.log(`File uploaded successfully: ${filePath}`);
-    } catch (err) {
-      console.error("File upload failed:", err);
-      throw err;
-    }
-  };
+       const putUrl = slot.getChildText("put");
+       const getUrl = slot.getChildText("get");
 
-  const sendFileWithHTTPUpload = async (to: string, filePath: string, text?: string, isGroupChat?: boolean): Promise<void> => {
-    try {
-      // Get file stats
-      const stats = await fs.promises.stat(filePath);
-      const filename = path.basename(filePath);
-      const size = stats.size;
-      
-      // Request upload slot
-      const slot = await requestUploadSlot(filename, size);
-      
-      // Upload file
-      await uploadFileViaHTTP(filePath, slot.putUrl, slot.headers);
-      
-      // Send message with file URL
-      const messageType = isGroupChat ? "groupchat" : "chat";
-      const message = xml("message", { type: messageType, to },
-        text ? xml("body", {}, text) : null,
-        xml("x", { xmlns: "jabber:x:oob" },
-          xml("url", {}, slot.getUrl)
-        )
-      );
-      
-      await xmpp.send(message);
-      console.log(`File sent successfully to ${to}: ${slot.getUrl}`);
+       if (!putUrl || !getUrl) {
+         throw new Error("Missing put or get URL in slot");
+       }
+
+       const putHeaders: Record<string, string> = {};
+       const putElement = slot.getChild("put");
+       if (putElement) {
+         const headerElements = putElement.getChildren("header");
+         for (const header of headerElements) {
+           const name = header.attrs.name;
+           const value = header.getText();
+           if (name && value) {
+             putHeaders[name] = value;
+           }
+         }
+       }
+
+       return { putUrl, getUrl, headers: Object.keys(putHeaders).length > 0 ? putHeaders : undefined };
+     } catch (err) {
+       console.error("Failed to request upload slot:", err);
+       throw err;
+     }
+   };
+
+   const uploadFileViaHTTP = async (filePath: string, putUrl: string, headers?: Record<string, string>): Promise<void> => {
+     try {
+       const fileBuffer = await fs.promises.readFile(filePath);
+       const fileSize = fileBuffer.length;
+
+       const fetchHeaders: Record<string, string> = {
+         'Content-Type': 'application/octet-stream',
+         'Content-Length': fileSize.toString(),
+       };
+
+       if (headers) {
+         Object.assign(fetchHeaders, headers);
+       }
+
+       const response = await fetch(putUrl, {
+         method: 'PUT',
+         headers: fetchHeaders,
+         body: fileBuffer,
+       });
+
+       if (!response.ok) {
+         throw new Error(`HTTP upload failed: ${response.status} ${response.statusText}`);
+       }
+     } catch (err) {
+       console.error("File upload failed:", err);
+       throw err;
+     }
+   };
+
+   const sendFileWithHTTPUpload = async (to: string, filePath: string, text?: string, isGroupChat?: boolean): Promise<void> => {
+     try {
+       const stats = await fs.promises.stat(filePath);
+       const filename = path.basename(filePath);
+       const size = stats.size;
+
+       const slot = await requestUploadSlot(filename, size);
+
+       await uploadFileViaHTTP(filePath, slot.putUrl, slot.headers);
+
+       const messageType = isGroupChat ? "groupchat" : "chat";
+       const message = xml("message", { type: messageType, to },
+         text ? xml("body", {}, text) : null,
+         xml("x", { xmlns: "jabber:x:oob" },
+           xml("url", {}, slot.getUrl)
+         )
+       );
+
+       await xmpp.send(message);
     } catch (err) {
       console.error("Failed to send file via HTTP Upload:", err);
       throw err;
@@ -1582,6 +1481,10 @@ Avatar URL: ${data.avatarUrl || '(not set)'}`);
  
 
    const xmppClient = {
+      // Access to raw XMPP connection for status and low-level operations
+      get xmpp() { return xmpp; },
+      get status() { return xmpp?.status; },
+      
       send: (to: string, body: string) => {
         const message = xml("message", { type: "chat", to }, xml("body", {}, body));
         return xmpp.send(message);
@@ -1660,81 +1563,21 @@ Avatar URL: ${data.avatarUrl || '(not set)'}`);
   return xmppClient;
 }
 
-export function register(api: any) {
-  const log = api.logger ?? console;
-  log.info("Registering XMPP plugin");
-  console.log("XMPP plugin register called");
-  
-  // Debug: Inspect the api object
-  console.log("=== API OBJECT INSPECTION ===");
-  console.log("api keys:", Object.keys(api));
-  const allApiProps = [];
-  for (let key in api) {
-    allApiProps.push(key);
-  }
-  console.log("All api properties:", allApiProps);
-  const apiMethods = allApiProps.filter(k => typeof api[k] === 'function');
-  console.log("All api methods:", apiMethods);
-  
-  // Check for runtime access
-  if (api.runtime) {
-    pluginRuntime = api.runtime;
-    console.log("api.runtime exists, keys:", Object.keys(api.runtime));
-    if (api.runtime.channel) {
-      console.log("api.runtime.channel exists, keys:", Object.keys(api.runtime.channel));
-      
-      // Check if there's a generic message forwarding method
-      const channelMethods = Object.keys(api.runtime.channel);
-      console.log("Channel methods available:", channelMethods);
-      
-      // Look for text, message, or routing methods
-      const possibleForwardMethods = ['text', 'message', 'routing', 'dispatch', 'receive'];
-      for (const method of possibleForwardMethods) {
-        if (api.runtime.channel[method]) {
-          console.log(`✅ Found channel.${method}:`, typeof api.runtime.channel[method]);
-          
-          // If it's an object, log its methods
-          if (typeof api.runtime.channel[method] === 'object') {
-            const subMethods = Object.keys(api.runtime.channel[method]);
-            console.log(`  channel.${method} methods:`, subMethods.slice(0, 10)); // First 10 methods
-          }
-        }
-      }
-      
-      // Also check session and activity which might handle messages
-      if (api.runtime.channel.session) {
-        const sessionMethods = Object.keys(api.runtime.channel.session);
-        console.log("channel.session methods:", sessionMethods.slice(0, 10));
-      }
-      if (api.runtime.channel.activity) {
-        const activityMethods = Object.keys(api.runtime.channel.activity);
-        console.log("channel.activity methods:", activityMethods.slice(0, 10));
-      }
-    }
-  }
-  console.log("=== END API INSPECTION ===");
-  
-  // Check for emit method
-  console.log("Checking for api.emit method...");
-  if (typeof api.emit === 'function') {
-    console.log("✅ api.emit is available");
-  } else {
-    console.log("❌ api.emit not found");
-    // Check if emit is on a different object
-    if (api.runtime?.emit) {
-      console.log("✅ api.runtime.emit is available");
-    }
-  }
-  
-  // Try to use api.on for event-based message forwarding
-  if (typeof api.on === 'function') {
-    console.log("api.on is available for listening to events");
-  }
+// Import CLI commands module
+import { registerXmppCli } from "./data/commands.ts";
 
-  const xmppPlugin = {
-    id: "xmpp",
-    meta: {
+export function register(api: any) {
+  if (pluginRegistered) {
+    return;
+  }
+   pluginRegistered = true;
+   const log = api.logger ?? console;
+   log.info("Registering XMPP plugin");
+
+  const xmppChannelPlugin = {
       id: "xmpp",
+    meta: {
+    id: "xmpp",
       label: "XMPP",
       selectionLabel: "XMPP (Jabber)",
       docsPath: "/channels/xmpp",
@@ -1785,21 +1628,21 @@ export function register(api: any) {
         };
       },
       defaultAccountId: () => "default",
-      isConfigured: (account: any) => Boolean(account.config.jid?.trim() && account.config.password?.trim()),
+      isConfigured: (account: any) => Boolean(account?.config?.jid?.trim() && account?.config?.password?.trim()),
       describeAccount: (account: any) => ({
-        accountId: account.accountId,
-        name: account.config.jid || account.accountId,
-        enabled: account.enabled,
-        configured: Boolean(account.config.jid?.trim() && account.config.password?.trim()),
+        accountId: account?.accountId,
+        name: account?.config?.jid || account?.accountId,
+        enabled: account?.enabled,
+        configured: Boolean(account?.config?.jid?.trim() && account?.config?.password?.trim()),
         tokenSource: "config",
       }),
     },
     status: {
-      buildAccountSnapshot: ({ account, runtime }: any) => ({
-        accountId: account.accountId,
-        name: account.config.jid || account.accountId,
-        enabled: account.enabled,
-        configured: Boolean(account.config.jid?.trim() && account.config.password?.trim()),
+        buildAccountSnapshot: ({ account, runtime }: any) => ({
+        accountId: account?.accountId,
+        name: account?.config?.jid || account?.accountId,
+        enabled: account?.enabled,
+        configured: Boolean(account?.config?.jid?.trim() && account?.config?.password?.trim()),
         tokenSource: "config",
         running: runtime?.running ?? false,
         lastStartAt: runtime?.lastStartAt ?? null,
@@ -1808,7 +1651,7 @@ export function register(api: any) {
       }),
     },
     outbound: {
-      deliveryMode: "direct",
+      deliveryMode: "gateway",
       sendText: async ({ to, text, accountId }: any) => {
         console.log("XMPP sendText called with:", { to, text, accountId });
         
@@ -1938,7 +1781,7 @@ export function register(api: any) {
         
         console.log(`XMPP startAccount called for account ${account.accountId}`);
         
-        if (!config.jid?.trim() || !config.password?.trim()) {
+        if (!config?.jid?.trim() || !config?.password?.trim()) {
           console.log("Missing jid or password");
           throw new Error("XMPP account missing jid or password");
         }
@@ -1951,8 +1794,8 @@ export function register(api: any) {
         log?.info(`[${account.accountId}] loaded ${contactList.length} contacts`);
         
         // Initialize super admin from config if specified
-        if (config.adminJid?.trim()) {
-          const adminJid = config.adminJid.trim();
+        if (config?.adminJid?.trim()) {
+          const adminJid = config.adminJid?.trim() || '';
           if (!contacts.isAdmin(adminJid)) {
             contacts.addAdmin(adminJid);
             console.log(`[${account.accountId}] Added super admin from config: ${adminJid}`);
@@ -2360,19 +2203,37 @@ export function register(api: any) {
   };
 
   console.log("About to register XMPP channel plugin");
-  api.registerChannel({ plugin: xmppPlugin });
+  api.registerChannel({ plugin: xmppChannelPlugin });
   log.info("XMPP channel plugin registered");
-  console.log("XMPP channel plugin registered");
-  
-  // Register CLI commands
-  try {
-    import("./data/commands.js").then(({ registerCommands }) => {
-      registerCommands(api, api.config?.dataDir || "./data");
-      console.log("XMPP CLI commands registered");
-    }).catch(err => {
-      console.error("Failed to register CLI commands:", err);
-    });
-  } catch (err) {
-    console.error("Failed to register CLI commands:", err);
-  }
+
+  // Register CLI commands using registerCli
+  api.registerCli(
+    ({ program }) => {
+      const getXmppClient = () => {
+        return xmppClients.get("default") || xmppClients.values().next().value;
+      };
+
+      registerXmppCli({
+        program,
+        getXmppClient,
+        logger: api.logger,
+        getUnprocessedMessages,
+        clearOldMessages,
+        messageQueue
+      });
+    },
+    { commands: ["xmpp"] }
+  );
 }
+
+// Export the register function as default
+export default register;
+
+// Also export plugin metadata for compatibility
+export const plugin = {
+   id: "xmpp",
+  name: "XMPP",
+  description: "XMPP channel plugin",
+  configSchema: emptyPluginConfigSchema(),
+  register,
+};
