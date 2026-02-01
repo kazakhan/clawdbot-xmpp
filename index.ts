@@ -1,7 +1,24 @@
 import fs from "fs";
 import path from "path";
+import { emptyPluginConfigSchema } from "clawdbot/plugin-sdk";
+
+// Simple file logger for debugging
+const debugLog = (msg: string) => {
+  const logFile = path.join(__dirname, 'cli-debug.log');
+  const timestamp = new Date().toISOString();
+  const line = `[${timestamp}] ${msg}\n`;
+  try {
+    fs.appendFileSync(logFile, line);
+  } catch (err) {
+    console.error('Failed to write debug log:', err);
+  }
+};
 
 console.log("XMPP plugin loading at", new Date().toISOString());
+console.error("XMPP PLUGIN MODULE LOADED - CHECK IF THIS APPEARS");
+debugLog(`XMPP plugin loading at ${new Date().toISOString()}`);
+
+let pluginRegistered = false;
 
 // Global store for XMPP clients by account ID
 export const xmppClients = new Map<string, any>();
@@ -313,8 +330,8 @@ export { addToQueue, getUnprocessedMessages, markAsProcessed, clearOldMessages, 
 async function startXmpp(cfg: any, contacts: any, log: any, onMessage: (from: string, body: string, options?: { type?: string, room?: string, nick?: string, botNick?: string, mediaUrls?: string[], mediaPaths?: string[], whiteboardPrompt?: string, whiteboardRequest?: boolean, whiteboardImage?: boolean }) => void) {
   // Helper to get default resource/nick from JID local part
   const getDefaultResource = () => {
-    const result = cfg.resource || cfg.jid.split("@")[0] || "clawdbot";
-    console.log(`getDefaultResource: cfg.resource=${cfg.resource}, cfg.jid=${cfg.jid}, result=${result}`);
+    const result = cfg?.resource || cfg?.jid?.split("@")[0] || "clawdbot";
+    console.log(`getDefaultResource: cfg.resource=${cfg?.resource}, cfg.jid=${cfg?.jid}, result=${result}`);
     return result;
   };
   const getDefaultNick = () => {
@@ -377,12 +394,12 @@ async function startXmpp(cfg: any, contacts: any, log: any, onMessage: (from: st
    
    console.log("Starting XMPP connection with TLS rejection disabled");
   console.log("startXmpp config:", {
-    service: cfg.service,
-    domain: cfg.domain,
-    jid: cfg.jid,
-    resource: cfg.resource,
-    hasResource: cfg.resource !== undefined,
-    jidLocalPart: cfg.jid ? cfg.jid.split("@")[0] : 'undefined'
+    service: cfg?.service,
+    domain: cfg?.domain,
+    jid: cfg?.jid,
+    resource: cfg?.resource,
+    hasResource: cfg?.resource !== undefined,
+    jidLocalPart: cfg?.jid ? cfg.jid.split("@")[0] : 'undefined'
   });
   
   // Lazy load @xmpp/client module
@@ -394,14 +411,14 @@ async function startXmpp(cfg: any, contacts: any, log: any, onMessage: (from: st
   
   const { client, xml } = xmppClientModule;
   
-   const xmpp = client({
-     service: cfg.service,
-     domain: cfg.domain,
-     username: cfg.jid.split("@")[0],
-     password: cfg.password,
-      resource: getDefaultResource(),
-     tls: { rejectUnauthorized: false }
-   });
+    const xmpp = client({
+      service: cfg?.service,
+      domain: cfg?.domain,
+      username: cfg?.jid?.split("@")[0],
+      password: cfg?.password,
+       resource: getDefaultResource(),
+      tls: { rejectUnauthorized: false }
+    });
 
    // Helper to resolve room JID - add conference domain if missing
    const resolveRoomJid = (room: string): string => {
@@ -729,8 +746,8 @@ async function startXmpp(cfg: any, contacts: any, log: any, onMessage: (from: st
          if (vcardElement) {
            console.log(`vCard request from ${from}, type: ${type}`);
            if (type === "get") {
-             // Extract local part from JID for nickname fallback
-             const localPart = cfg.jid.split("@")[0];
+              // Extract local part from JID for nickname fallback
+              const localPart = cfg?.jid?.split("@")[0] || "clawdbot";
              const fn = vcard.getFN() || `ClawdBot (${localPart})`;
              const nickname = vcard.getNickname() || localPart;
              const url = vcard.getURL() || "https://github.com/anomalyco/clawdbot";
@@ -882,7 +899,7 @@ async function startXmpp(cfg: any, contacts: any, log: any, onMessage: (from: st
          const botNick = roomJid ? roomNicks.get(roomJid) : null;
          
          // Parse command and arguments
-         const parts = body.trim().split(/\s+/);
+          const parts = body?.trim()?.split(/\s+/) || [];
          const command = parts[0].substring(1).toLowerCase(); // Remove leading '/'
          const args = parts.slice(1);
         
@@ -1582,6 +1599,10 @@ Avatar URL: ${data.avatarUrl || '(not set)'}`);
  
 
    const xmppClient = {
+      // Access to raw XMPP connection for status and low-level operations
+      get xmpp() { return xmpp; },
+      get status() { return xmpp?.status; },
+      
       send: (to: string, body: string) => {
         const message = xml("message", { type: "chat", to }, xml("body", {}, body));
         return xmpp.send(message);
@@ -1660,10 +1681,29 @@ Avatar URL: ${data.avatarUrl || '(not set)'}`);
   return xmppClient;
 }
 
+// Import CLI commands module
+import { registerXmppCli } from "./data/commands.ts";
+
 export function register(api: any) {
+  debugLog(`register() called, pluginRegistered=${pluginRegistered}`);
+  if (pluginRegistered) {
+    console.log("XMPP plugin already registered, skipping");
+    debugLog("Plugin already registered, skipping");
+    return;
+  }
+  pluginRegistered = true;
   const log = api.logger ?? console;
   log.info("Registering XMPP plugin");
-  console.log("XMPP plugin register called");
+  console.log("XMPP plugin register called - is this CLI or Gateway?");
+  debugLog("Registering XMPP plugin");
+  
+  // Check if this is CLI registration or Gateway registration
+  const stack = new Error().stack || '';
+  const isCliRegistration = stack.includes('registerPluginCliCommands') || stack.includes('cli.js');
+  console.log(`Registration context: ${isCliRegistration ? 'CLI' : 'Gateway (or other)'}`);
+  console.log(`Stack includes 'cli.js': ${stack.includes('cli.js')}`);
+  console.log(`Stack includes 'registerPluginCliCommands': ${stack.includes('registerPluginCliCommands')}`);
+  debugLog(`Registration context: ${isCliRegistration ? 'CLI' : 'Gateway'}`);
   
   // Debug: Inspect the api object
   console.log("=== API OBJECT INSPECTION ===");
@@ -1731,10 +1771,10 @@ export function register(api: any) {
     console.log("api.on is available for listening to events");
   }
 
-  const xmppPlugin = {
-    id: "xmpp",
-    meta: {
+  const xmppChannelPlugin = {
       id: "xmpp",
+    meta: {
+    id: "xmpp",
       label: "XMPP",
       selectionLabel: "XMPP (Jabber)",
       docsPath: "/channels/xmpp",
@@ -1785,21 +1825,21 @@ export function register(api: any) {
         };
       },
       defaultAccountId: () => "default",
-      isConfigured: (account: any) => Boolean(account.config.jid?.trim() && account.config.password?.trim()),
+      isConfigured: (account: any) => Boolean(account?.config?.jid?.trim() && account?.config?.password?.trim()),
       describeAccount: (account: any) => ({
-        accountId: account.accountId,
-        name: account.config.jid || account.accountId,
-        enabled: account.enabled,
-        configured: Boolean(account.config.jid?.trim() && account.config.password?.trim()),
+        accountId: account?.accountId,
+        name: account?.config?.jid || account?.accountId,
+        enabled: account?.enabled,
+        configured: Boolean(account?.config?.jid?.trim() && account?.config?.password?.trim()),
         tokenSource: "config",
       }),
     },
     status: {
-      buildAccountSnapshot: ({ account, runtime }: any) => ({
-        accountId: account.accountId,
-        name: account.config.jid || account.accountId,
-        enabled: account.enabled,
-        configured: Boolean(account.config.jid?.trim() && account.config.password?.trim()),
+        buildAccountSnapshot: ({ account, runtime }: any) => ({
+        accountId: account?.accountId,
+        name: account?.config?.jid || account?.accountId,
+        enabled: account?.enabled,
+        configured: Boolean(account?.config?.jid?.trim() && account?.config?.password?.trim()),
         tokenSource: "config",
         running: runtime?.running ?? false,
         lastStartAt: runtime?.lastStartAt ?? null,
@@ -1808,7 +1848,7 @@ export function register(api: any) {
       }),
     },
     outbound: {
-      deliveryMode: "direct",
+      deliveryMode: "gateway",
       sendText: async ({ to, text, accountId }: any) => {
         console.log("XMPP sendText called with:", { to, text, accountId });
         
@@ -1938,7 +1978,7 @@ export function register(api: any) {
         
         console.log(`XMPP startAccount called for account ${account.accountId}`);
         
-        if (!config.jid?.trim() || !config.password?.trim()) {
+        if (!config?.jid?.trim() || !config?.password?.trim()) {
           console.log("Missing jid or password");
           throw new Error("XMPP account missing jid or password");
         }
@@ -1951,8 +1991,8 @@ export function register(api: any) {
         log?.info(`[${account.accountId}] loaded ${contactList.length} contacts`);
         
         // Initialize super admin from config if specified
-        if (config.adminJid?.trim()) {
-          const adminJid = config.adminJid.trim();
+        if (config?.adminJid?.trim()) {
+          const adminJid = config.adminJid?.trim() || '';
           if (!contacts.isAdmin(adminJid)) {
             contacts.addAdmin(adminJid);
             console.log(`[${account.accountId}] Added super admin from config: ${adminJid}`);
@@ -2360,19 +2400,37 @@ export function register(api: any) {
   };
 
   console.log("About to register XMPP channel plugin");
-  api.registerChannel({ plugin: xmppPlugin });
+  api.registerChannel({ plugin: xmppChannelPlugin });
   log.info("XMPP channel plugin registered");
-  console.log("XMPP channel plugin registered");
-  
-  // Register CLI commands
-  try {
-    import("./data/commands.js").then(({ registerCommands }) => {
-      registerCommands(api, api.config?.dataDir || "./data");
-      console.log("XMPP CLI commands registered");
-    }).catch(err => {
-      console.error("Failed to register CLI commands:", err);
-    });
-  } catch (err) {
-    console.error("Failed to register CLI commands:", err);
-  }
+
+  // Register CLI commands using registerCli
+  api.registerCli(
+    ({ program }) => {
+      const getXmppClient = () => {
+        return xmppClients.get("default") || xmppClients.values().next().value;
+      };
+
+      registerXmppCli({
+        program,
+        getXmppClient,
+        logger: api.logger,
+        getUnprocessedMessages,
+        clearOldMessages,
+        messageQueue
+      });
+    },
+    { commands: ["xmpp"] }
+  );
 }
+
+// Export the register function as default
+export default register;
+
+// Also export plugin metadata for compatibility
+export const plugin = {
+   id: "xmpp",
+  name: "XMPP",
+  description: "XMPP channel plugin",
+  configSchema: emptyPluginConfigSchema(),
+  register,
+};

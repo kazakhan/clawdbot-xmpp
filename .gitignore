@@ -34,3 +34,5 @@ build/
 data/xmpp-admins.json
 data/xmpp-contacts.json
 data/xmpp-vcard.json
+
+*.log:
