@@ -68,8 +68,7 @@ function checkRateLimit(jid: string): boolean {
   return true;
 }
 
-// Set TLS environment variable at module load time
-process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
+
 
 // We'll import @xmpp/client lazily when needed
 let xmppClientModule: any = null;
