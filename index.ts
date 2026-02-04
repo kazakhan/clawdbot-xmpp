@@ -453,13 +453,109 @@ async function startXmpp(cfg: any, contacts: any, log: any, onMessage: (from: st
      });
 
    // Helper to resolve room JID - add conference domain if missing
-   const resolveRoomJid = (room: string): string => {
-     if (room.includes('@')) {
-       return room;
-     }
-     // Default to conference.domain for MUC rooms
-     return `${room}@conference.${cfg.domain}`;
-   };
+    const resolveRoomJid = (room: string): string => {
+      if (room.includes('@')) {
+        return room;
+      }
+      // Default to conference.domain for MUC rooms
+      return `${room}@conference.${cfg.domain}`;
+    };
+    
+    // vCard server query helpers
+    const parseVCardXml = (vcardEl: any): any => {
+      const data: any = {};
+      if (!vcardEl) return data;
+      
+      const fn = vcardEl.getChild('FN');
+      const nickname = vcardEl.getChild('NICKNAME');
+      const url = vcardEl.getChild('URL');
+      const desc = vcardEl.getChild('DESC');
+      const photo = vcardEl.getChild('PHOTO');
+      
+      if (fn) data.fn = fn.text();
+      if (nickname) data.nickname = nickname.text();
+      if (url) data.url = url.text();
+      if (desc) data.desc = desc.text();
+      if (photo) {
+        const uri = photo.getChild('URI');
+        if (uri) data.avatarUrl = uri.text();
+      }
+      
+      return data;
+    };
+    
+    const queryVCardFromServer = async (targetJid: string): Promise<any> => {
+      const id = `vc-get-${Date.now()}`;
+      let response: any = null;
+      let error: any = null;
+      
+      const handler = (stanza: any) => {
+        debugLog(`vCard query received stanza: id=${stanza.attrs.id}, type=${stanza.attrs.type}, from=${stanza.attrs.from}`);
+        if (stanza.attrs.id === id && stanza.attrs.type === 'result') {
+          response = stanza;
+        }
+      };
+      
+      xmpp.on('stanza', handler);
+      
+      try {
+        // If targetJid is provided, query that user; otherwise query our own vCard (no 'to' address)
+        const iqAttrs: any = { type: "get", id };
+        if (targetJid) {
+          iqAttrs.to = targetJid;
+        }
+        debugLog(`Querying vCard from ${targetJid || 'self'} with id ${id}`);
+        await xmpp.send(xml("iq", iqAttrs, xml("vCard", { xmlns: "vcard-temp" })));
+        // Wait for response
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+      } catch (err) {
+        error = err;
+        debugLog(`vCard query send error: ${err}`);
+      } finally {
+        xmpp.off('stanza', handler);
+      }
+      
+      if (error) {
+        debugLog(`vCard query error: ${error}`);
+        return null;
+      }
+      
+      if (response) {
+        const vcardEl = response.getChild('vCard');
+        if (vcardEl) {
+          const data = parseVCardXml(vcardEl);
+          debugLog(`vCard parsed: fn=${data.fn}, nickname=${data.nickname}`);
+          return data;
+        }
+      }
+      debugLog(`vCard query no response for ${targetJid || 'self'}`);
+      return null;
+    };
+    
+    const updateVCardOnServer = async (updates: any): Promise<boolean> => {
+      // Get current vCard from server first
+      const current = await queryVCardFromServer('');
+      const merged = current ? { ...current, ...updates } : updates;
+      
+      const vcardId = `vc-set-${Date.now()}`;
+      const vcardSet = xml("iq", { type: "set", id: vcardId },
+        xml("vCard", { xmlns: "vcard-temp" },
+          merged.fn ? xml("FN", {}, merged.fn) : null,
+          merged.nickname ? xml("NICKNAME", {}, merged.nickname) : null,
+          merged.url ? xml("URL", {}, merged.url) : null,
+          merged.desc ? xml("DESC", {}, merged.desc) : null,
+          merged.avatarUrl ? xml("PHOTO", {}, xml("URI", {}, merged.avatarUrl)) : null
+        )
+      );
+      
+      try {
+        await xmpp.send(vcardSet);
+        return true;
+      } catch (err) {
+        console.error("Failed to update vCard on server:", err);
+        return false;
+      }
+    };
 
   xmpp.on("error", (err: any) => {
     log.error("XMPP error", err);
@@ -1279,74 +1375,95 @@ async function startXmpp(cfg: any, contacts: any, log: any, onMessage: (from: st
                      ? '❌ Admin commands not available in groupchat. Use direct message.'
                      : '❌ Permission denied. Admin access required.');
                    return;
+                  }
+                 if (args.length === 0 || args[0] === 'help') {
+                   await sendReply(`vCard commands:
+ /vcard help - Show this help
+ /vcard get - Show current vCard (from server)
+ /vcard get <jid> - Show vCard for any user
+ /vcard set fn <value> - Set Full Name
+ /vcard set nickname <value> - Set Nickname
+ /vcard set url <value> - Set URL
+ /vcard set desc <value> - Set Description
+ /vcard set avatarUrl <value> - Set Avatar URL`);
+                   return;
                  }
-                if (args.length === 0 || args[0] === 'help') {
-                  await sendReply(`vCard commands:
-/vcard help - Show this help
-/vcard get - Show current vCard fields
-/vcard set fn <value> - Set Full Name
-/vcard set nickname <value> - Set Nickname
-/vcard set url <value> - Set URL
-/vcard set desc <value> - Set Description
-/vcard set avatarUrl <value> - Set Avatar URL`);
-                  return;
-                }
-                const subcmd = args[0].toLowerCase();
-                if (subcmd === 'get') {
-                  const data = vcard.getData();
-                  await sendReply(`Current vCard:
-FN: ${data.fn || '(not set)'}
-Nickname: ${data.nickname || '(not set)'}
-URL: ${data.url || '(not set)'}
-Description: ${data.desc || '(not set)'}
-Avatar URL: ${data.avatarUrl || '(not set)'}`);
-                  return;
-                } else if (subcmd === 'set') {
-                  if (args.length < 3) {
-                    await sendReply('Usage: /vcard set <field> <value>');
+                 const subcmd = args[0].toLowerCase();
+                 
+                 if (subcmd === 'get') {
+                   if (args.length >= 2) {
+                     // Query another user's vCard
+                     const targetJid = args[1];
+                     const userVCard = await queryVCardFromServer(targetJid);
+                     if (userVCard) {
+                       await sendReply(`vCard for ${targetJid}:
+ FN: ${userVCard.fn || '(not set)'}
+ Nickname: ${userVCard.nickname || '(not set)'}
+ URL: ${userVCard.url || '(not set)'}
+ Description: ${userVCard.desc || '(not set)'}
+ Avatar URL: ${userVCard.avatarUrl || '(not set)'}`);
+                     } else {
+                       await sendReply(`❌ No vCard found for ${targetJid}`);
+                     }
+                   } else {
+                     // Query bot's vCard from server
+                     const botVCard = await queryVCardFromServer('');
+                     if (botVCard) {
+                       await sendReply(`vCard (from server):
+ FN: ${botVCard.fn || '(not set)'}
+ Nickname: ${botVCard.nickname || '(not set)'}
+ URL: ${botVCard.url || '(not set)'}
+ Description: ${botVCard.desc || '(not set)'}
+ Avatar URL: ${botVCard.avatarUrl || '(not set)'}`);
+                     } else {
+                       await sendReply(`❌ Failed to retrieve vCard from server`);
+                     }
+                   }
+                   return;
+                 } else if (subcmd === 'set') {
+                   if (args.length < 3) {
+                     await sendReply('Usage: /vcard set <field> <value>');
+                     return;
+                   }
+                   const field = args[1].toLowerCase();
+                   const value = args.slice(2).join(' ');
+                   
+                   // Validate field
+                   if (!['fn', 'nickname', 'url', 'desc', 'avatarurl'].includes(field)) {
+                     await sendReply(`Unknown field: ${field}. Available fields: fn, nickname, url, desc, avatarUrl`);
+                     return;
+                   }
+                   
+                   // Update server vCard
+                   const updates: any = {};
+                   if (field === 'fn') updates.fn = value;
+                   if (field === 'nickname') updates.nickname = value;
+                   if (field === 'url') updates.url = value;
+                   if (field === 'desc') updates.desc = value;
+                   if (field === 'avatarurl') updates.avatarUrl = value;
+                   
+                   const success = await updateVCardOnServer(updates);
+                   
+                   if (success) {
+                     // Also update local cache for responding to others
+                     if (field === 'fn') vcard.setFN(value);
+                     if (field === 'nickname') vcard.setNickname(value);
+                     if (field === 'url') vcard.setURL(value);
+                     if (field === 'desc') vcard.setDesc(value);
+                     if (field === 'avatarurl') vcard.setAvatarUrl(value);
+                     
+                     await sendReply(`✅ vCard field '${field}' updated on server: ${value}`);
+                    } else {
+                      await sendReply(`❌ Failed to update vCard on server`);
+                    }
                     return;
-                  }
-                  const field = args[1].toLowerCase();
-                  const value = args.slice(2).join(' ');
-                  let updated = false;
-                  switch (field) {
-                    case 'fn':
-                      vcard.setFN(value);
-                      updated = true;
-                      break;
-                    case 'nickname':
-                      vcard.setNickname(value);
-                      updated = true;
-                      break;
-                    case 'url':
-                      vcard.setURL(value);
-                      updated = true;
-                      break;
-                    case 'desc':
-                      vcard.setDesc(value);
-                      updated = true;
-                      break;
-                    case 'avatarurl':
-                      vcard.setAvatarUrl(value);
-                      updated = true;
-                      break;
-                    default:
-                      await sendReply(`Unknown field: ${field}. Available fields: fn, nickname, url, desc, avatarUrl`);
-                      return;
-                  }
-                  if (updated) {
-                    await sendReply(`✅ vCard field '${field}' updated to: ${value}`);
+                  } else {
+                    await sendReply(`Unknown vCard subcommand: ${subcmd}. Use /vcard help for available commands.`);
                   }
                   return;
-                } else {
-                  await sendReply(`Unknown vCard subcommand: ${subcmd}. Use /vcard help for available commands.`);
-                }
-                return;
-
               
 
-               
-              default:
+               default:
                 // Should not reach here for non-plugin commands (handled earlier)
                 await sendReply(`Unknown command: /${command}. Type /help for available commands.`);
                 return;

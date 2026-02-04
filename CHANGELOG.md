@@ -14,10 +14,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Shared Session Memory**: Direct chat and groupchat messages now share the same session when users are identified, enabling persistent memory across conversation types
 - **XEP-0327 Occupant-ID Support**: Automatic user identification in MUC rooms using stable occupant IDs for consistent session tracking
 - **Session Memory Configuration**: Support for `memorySearch.experimental.sessionMemory` in agent config to enable session transcript searching
+- **Query Any User's vCard**: `/vcard get <jid>` command to retrieve vCard information for any XMPP user from the server
 
 ### Changed
 - **Debug Logging Reduced**: Removed verbose console.log output throughout the plugin; debug information now writes to `cli-debug.log` file instead
 - **Cleaner Console Output**: Only essential operational messages (connections, presence, vCard, room events) are logged to console
+- **vCard Commands Now Query Server**: `/vcard get` and `/vcard set` now query/update the XMPP server instead of using local storage
 - **Session Key Format**: Sessions now use `xmpp:user@domain.com` for both direct and groupchat when user is identified
 - **Chat Type**: All XMPP conversations use "direct" chatType to prevent separate session buckets
 - **Reply Routing**: Groupchat replies correctly route to room JID instead of user JID
