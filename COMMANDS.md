@@ -92,6 +92,14 @@ openclaw xmpp vcard set url "https://github.com/anomalyco/openclaw"
 openclaw xmpp vcard set desc "AI Assistant"
 ```
 
+### FTP
+- **FTP File Management**: CLI commands to upload, download, list, and delete files via FTP using same credentials as XMPP server
+  - `openclaw xmpp ftp upload <local-path> [remote-name]` - Upload file to FTP (overwrites existing)
+  - `openclaw xmpp ftp download <remote-name> [local-path]` - Download file from FTP
+  - `openclaw xmpp ftp ls` - List files in your folder
+  - `openclaw xmpp ftp rm <remote-name>` - Delete file
+  - `openclaw xmpp ftp help` - Show FTP help
+
 ## In-XMPP Commands
 
 When connected via XMPP, you can also use slash commands:
