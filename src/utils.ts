@@ -3,11 +3,11 @@ import fs from "fs";
 import { XmppConfig } from "./types.js";
 
 export function getDefaultResource(cfg: XmppConfig): string {
-  return cfg?.resource || cfg?.jid?.split("@")[0] || "clawdbot";
+  return cfg?.resource || cfg?.jid?.split("@")[0] || "openclaw";
 }
 
 export function getDefaultNick(cfg: XmppConfig): string {
-  return cfg.jid ? cfg.jid.split("@")[0] : "clawdbot";
+  return cfg.jid ? cfg.jid.split("@")[0] : "openclaw";
 }
 
 export function resolveRoomJid(room: string, domain: string): string {

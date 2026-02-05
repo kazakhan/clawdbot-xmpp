@@ -1,6 +1,6 @@
 # Development Roadmap
 
-This document outlines the planned development direction for the ClawdBot XMPP plugin.
+This document outlines the planned development direction for the OpenClaw XMPP plugin.
 
 ## Phase 1: Core Stability (Complete)
 - [x] Basic XMPP connection and messaging
@@ -74,6 +74,6 @@ We welcome contributions for any roadmap item! Check [CONTRIBUTING.md](CONTRIBUT
 This roadmap is a living document and may change based on:
 - Community feedback
 - XMPP protocol developments
-- ClawdBot platform changes
+- OpenClaw platform changes
 - Contributor availability
 - Security requirements

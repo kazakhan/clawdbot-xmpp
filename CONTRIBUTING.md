@@ -1,6 +1,6 @@
-# Contributing to ClawdBot XMPP Plugin
+# Contributing to OpenClaw XMPP Plugin
 
-Thank you for your interest in contributing to the ClawdBot XMPP plugin! This document provides guidelines and instructions for contributing.
+Thank you for your interest in contributing to the OpenClaw XMPP plugin! This document provides guidelines and instructions for contributing.
 
 ## Development Setup
 
@@ -11,7 +11,7 @@ Thank you for your interest in contributing to the ClawdBot XMPP plugin! This do
    ```
 3. **Set up testing environment**:
    - You'll need an XMPP server for testing
-   - Configure the plugin in your ClawdBot `clawdbot.json`
+   - Configure the plugin in your OpenClaw `openclaw.json`
    - Use a test account on the XMPP server
 
 ## Code Style
@@ -82,4 +82,4 @@ Feel free to open an issue for questions about:
 - Implementation approach
 - XMPP protocol details
 - Configuration options
-- Integration with ClawdBot
+- Integration with OpenClaw

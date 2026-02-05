@@ -2,11 +2,11 @@
 
 ## Summary
 
-This PR fixes critical CLI command registration issues in ClawdBot that prevented XMPP plugin commands from working, and adds persistent roster storage to the XMPP plugin.
+This PR fixes critical CLI command registration issues in OpenClaw that prevented XMPP plugin commands from working, and adds persistent roster storage to the XMPP plugin.
 
 ## Changes
 
-### Core ClawdBot Fixes
+### Core OpenClaw Fixes
 
 #### 1. CLI Registration Bug Fix (`dist/cli/program/register.subclis.js`)
 **Problem**: `registerPluginCliCommands()` was only called when the `plugins` subcommand was registered, not for lazy-loaded subcommands like `xmpp`.
@@ -33,11 +33,11 @@ This PR fixes critical CLI command registration issues in ClawdBot that prevente
 #### 5. Roster Persistence (`extensions/xmpp/data/commands.ts`)
 **Added**: Persistent storage for roster using `xmpp-roster.json` file.
 
-- Roster saves to `~/.clawdbot/extensions/xmpp/xmpp-roster.json`
+- Roster saves to `~/.openclaw/extensions/xmpp/xmpp-roster.json`
 - Nicknames persist across restarts
 - Compatible with existing in-memory roster
 
-#### 6. CLI Integration (`extensions/xmpp/index.ts`, `extensions/xmpp/clawdbot.plugin.json`)
+#### 6. CLI Integration (`extensions/xmpp/index.ts`, `extensions/xmpp/openclaw.plugin.json`)
 **Changed**: Switched from `registerCommands()` to `registerCli()` for proper CLI integration.
 
 Added `"cli": ["xmpp"]` to plugin metadata.
@@ -47,7 +47,7 @@ Added `"cli": ["xmpp"]` to plugin metadata.
 
 ## Files Modified
 
-### ClawdBot Core (in `node_modules/clawdbot/`):
+### OpenClaw Core (in `node_modules/openclaw/`):
 ```
 dist/cli/program/register.subclis.js
 dist/cli/program/command-registry.js
@@ -61,26 +61,26 @@ dist/infra/outbound/target-resolver.js
 ```
 extensions/xmpp/index.ts
 extensions/xmpp/data/commands.ts
-extensions/xmpp/clawdbot.plugin.json
+extensions/xmpp/openclaw.plugin.json
 ```
 
 ### Distribution Patch:
 ```
-clawdbot-cli-fix.zip (14KB)
+openclaw-cli-fix.zip (14KB)
 ```
 
 ## Testing
 
 ### Before Fix
 ```
-$ clawdbot xmpp --help
+$ openclaw xmpp --help
 error: unknown command 'xmpp'
 ```
 
 ### After Fix
 ```
-$ clawdbot xmpp --help
-Usage: clawdbot xmpp [options] [command]
+$ openclaw xmpp --help
+Usage: openclaw xmpp [options] [command]
 
 XMPP channel plugin commands
 
@@ -88,7 +88,7 @@ Options:
   -h, --help  display help for command
 
 Commands:
-  start       Start the ClawdBot gateway in background
+  start       Start the OpenClaw gateway in background
   status      Show XMPP connection status
   msg         Send direct XMPP message (routes through gateway)
   roster      Show roster (in-memory)
@@ -103,10 +103,10 @@ Commands:
 ## Installation
 
 ### For Users
-The CLI fix is distributed as `clawdbot-cli-fix.zip`. Apply with:
+The CLI fix is distributed as `openclaw-cli-fix.zip`. Apply with:
 ```bash
-cd "C:\Users\<username>\AppData\Roaming\npm\node_modules\clawdbot"
-unzip -o path/to/clawdbot-cli-fix.zip
+cd "C:\Users\<username>\AppData\Roaming\npm\node_modules\openclaw"
+unzip -o path/to/openclaw-cli-fix.zip
 ```
 
 ### For Developers
@@ -116,8 +116,8 @@ The XMPP plugin changes are in `extensions/xmpp/`. No additional installation ne
 None. This PR is fully backward compatible.
 
 ## Migration Steps
-1. Apply `clawdbot-cli-fix.zip` to ClawdBot installation
-2. Restart ClawdBot
+1. Apply `openclaw-cli-fix.zip` to OpenClaw installation
+2. Restart OpenClaw
 3. Roster will persist to `xmpp-roster.json` automatically
 
 ## Related Issues

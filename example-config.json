@@ -21,14 +21,14 @@
             "general@conference.example.com",
             "support@conference.example.com"
           ],
-          "dataDir": "C:\\Users\\username\\.clawdbot\\extensions\\clawdbot-xmpp\\data"
+          "dataDir": "C:\\Users\\username\\.openclaw\\extensions\\openclaw-xmpp\\data"
         }
       }
     }
   }
 }
 
-// Additional configuration options (if needed in your clawdbot.json):
+// Additional configuration options (if needed in your openclaw.json):
 // "messages": {
 //   "ackReactionScope": "group-mentions"
 // },

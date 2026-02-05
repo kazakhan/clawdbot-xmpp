@@ -20,10 +20,10 @@ async function saveRoster() {
 
 
 
-// Helper to call openclaw message send via gateway
+// Helper to call clawdbot message send via gateway
 async function sendViaGateway(jid: string, message: string): Promise<boolean> {
   return new Promise((resolve) => {
-    const proc = spawn("cmd.exe", ["/c", "openclaw", "message", "send", "--channel", "xmpp", "--target", jid, "--message", message], {
+    const proc = spawn("cmd.exe", ["/c", "clawdbot", "message", "send", "--channel", "xmpp", "--target", jid, "--message", message], {
       stdio: ['ignore', 'pipe', 'pipe'],
       detached: false,
       windowsHide: true
@@ -73,9 +73,9 @@ export function registerXmppCli({
   // Subcommand: start - Start the gateway in background
   xmpp
     .command("start")
-    .description("Start the OpenClaw gateway in background")
+    .description("Start the ClawdBot gateway in background")
     .action(() => {
-      console.log("Starting OpenClaw gateway...");
+      console.log("Starting ClawdBot gateway...");
 
       const gatewayProcess = spawn(process.execPath, [process.argv[0], "gateway"], {
         detached: true,
@@ -89,7 +89,7 @@ export function registerXmppCli({
       console.log("Gateway starting in background (pid:", gatewayProcess.pid + ")");
       console.log("Waiting for gateway to initialize...");
       setTimeout(() => {
-        console.log("Gateway should be ready. Try: openclaw xmpp status");
+        console.log("Gateway should be ready. Try: clawdbot xmpp status");
       }, 3000);
     });
 
@@ -103,8 +103,8 @@ export function registerXmppCli({
         console.log(client.status || "Connected (no status available)");
       } else {
         console.log("XMPP client not connected. Gateway must be running.");
-        console.log("Start gateway with: openclaw gateway");
-        console.log("Or send messages directly: openclaw xmpp msg user@domain.com \"Hello\"");
+        console.log("Start gateway with: clawdbot gateway");
+        console.log("Or send messages directly: clawdbot xmpp msg user@domain.com \"Hello\"");
       }
     });
 
@@ -169,11 +169,11 @@ export function registerXmppCli({
       const client = getXmppClient();
       if (!client) {
         console.log("XMPP client not connected. Gateway must be running.");
-        console.log("Start gateway with: openclaw gateway");
+        console.log("Start gateway with: clawdbot gateway");
         return;
       }
 
-      const actualNick = nick || "openclaw";
+      const actualNick = nick || "clawdbot";
       try {
         if (client.joinRoom) {
           await client.joinRoom(room, actualNick);
@@ -234,19 +234,19 @@ export function registerXmppCli({
     .action(async (action: string, args: string[]) => {
       if (action === 'help') {
         console.log(`vCard commands:
-  openclaw xmpp vcard get - View current vCard
-  openclaw xmpp vcard set fn <value> - Set Full Name
-  openclaw xmpp vcard set nickname <value> - Set Nickname
-  openclaw xmpp vcard set url <value> - Set URL
-  openclaw xmpp vcard set desc <value> - Set Description
-  openclaw xmpp vcard set avatarUrl <value> - Set Avatar URL
+  clawdbot xmpp vcard get - View current vCard
+  clawdbot xmpp vcard set fn <value> - Set Full Name
+  clawdbot xmpp vcard set nickname <value> - Set Nickname
+  clawdbot xmpp vcard set url <value> - Set URL
+  clawdbot xmpp vcard set desc <value> - Set Description
+  clawdbot xmpp vcard set avatarUrl <value> - Set Avatar URL
 
 Examples:
-  openclaw xmpp vcard get
-  openclaw xmpp vcard set fn "My Bot"
-  openclaw xmpp vcard set nickname "bot"
-  openclaw xmpp vcard set url "https://github.com/anomalyco/openclaw"
-  openclaw xmpp vcard set desc "AI Assistant"
+  clawdbot xmpp vcard get
+  clawdbot xmpp vcard set fn "My Bot"
+  clawdbot xmpp vcard set nickname "bot"
+  clawdbot xmpp vcard set url "https://github.com/anomalyco/clawdbot"
+  clawdbot xmpp vcard set desc "AI Assistant"
 
 Note: Commands connect directly to XMPP server.`);
       } else if (action === 'get') {
@@ -274,7 +274,7 @@ Note: Commands connect directly to XMPP server.`);
         if (!validFields.includes(field)) {
           console.log(`Invalid field: ${field}`);
           console.log(`Valid fields: ${validFields.join(', ')}`);
-          console.log(`Use: openclaw xmpp vcard set <field> <value>`);
+          console.log(`Use: clawdbot xmpp vcard set <field> <value>`);
           return;
         }
 
@@ -296,7 +296,7 @@ Note: Commands connect directly to XMPP server.`);
         }
       } else {
         console.log('Invalid vCard command');
-        console.log('Use: openclaw xmpp vcard help');
+        console.log('Use: clawdbot xmpp vcard help');
       }
     });
 

@@ -1,0 +1,15 @@
+diff --git a/src/infra/outbound/target-resolver.ts b/src/infra/outbound/target-resolver.ts
+index abc1234..def5678 100644
+--- a/src/infra/outbound/target-resolver.ts
++++ b/src/infra/outbound/target-resolver.ts
+@@ -375,6 +375,10 @@ export async function resolveMessagingTarget(params: {
+     if (/^(conversation|user):/i.test(trimmed)) {
+       return true;
+     }
++    // XMPP JID pattern: user@domain format (e.g., jamie@kazakhan.com)
++    if (/^[a-zA-Z0-9._%-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(trimmed)) {
++      return true;
++    }
+     return false;
+   };
+   if (looksLikeTargetId()) {

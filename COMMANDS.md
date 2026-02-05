@@ -5,91 +5,91 @@ The XMPP plugin provides CLI commands for managing XMPP connections, contacts, a
 
 ## Commands
 
-### `clawdbot xmpp`
+### `openclaw xmpp`
 Shows help for all XMPP commands.
 
 ```bash
-clawdbot xmpp
+openclaw xmpp
 ```
 
-### `clawdbot xmpp start`
-Start the ClawdBot gateway in background.
+### `openclaw xmpp start`
+Start the OpenClaw gateway in background.
 
 ```bash
-clawdbot xmpp start
+openclaw xmpp start
 ```
 
-### `clawdbot xmpp status`
+### `openclaw xmpp status`
 Shows the current XMPP connection status.
 
 ```bash
-clawdbot xmpp status
+openclaw xmpp status
 ```
 
-### `clawdbot xmpp msg <jid> <message...>`
-Send a direct XMPP message to a JID. Routes through the clawdbot gateway to agents.
+### `openclaw xmpp msg <jid> <message...>`
+Send a direct XMPP message to a JID. Routes through the openclaw gateway to agents.
 
 ```bash
-clawdbot xmpp msg user@example.com "Hello, world!"
+openclaw xmpp msg user@example.com "Hello, world!"
 ```
 
-### `clawdbot xmpp roster`
+### `openclaw xmpp roster`
 Show the contact roster (in-memory).
 
 ```bash
-clawdbot xmpp roster
+openclaw xmpp roster
 ```
 
-### `clawdbot xmpp nick <jid> <name>`
+### `openclaw xmpp nick <jid> <name>`
 Set a nickname for a JID in the roster (in-memory).
 
 ```bash
-clawdbot xmpp nick user@example.com "John"
+openclaw xmpp nick user@example.com "John"
 ```
 
-### `clawdbot xmpp join <room> [nick]`
+### `openclaw xmpp join <room> [nick]`
 Join a MUC (multi-user chat) room.
 
 ```bash
-clawdbot xmpp join room@conference.example.com mynick
+openclaw xmpp join room@conference.example.com mynick
 ```
 
-### `clawdbot xmpp poll`
+### `openclaw xmpp poll`
 Poll and display queued unprocessed messages.
 
 ```bash
-clawdbot xmpp poll
+openclaw xmpp poll
 ```
 
-### `clawdbot xmpp clear`
+### `openclaw xmpp clear`
 Clear old messages from the queue.
 
 ```bash
-clawdbot xmpp clear
+openclaw xmpp clear
 ```
 
-### `clawdbot xmpp queue`
+### `openclaw xmpp queue`
 Show message queue statistics.
 
 ```bash
-clawdbot xmpp queue
+openclaw xmpp queue
 ```
 
-### `clawdbot xmpp vcard`
+### `openclaw xmpp vcard`
 Manage vCard profile.
 
 ```bash
 # Show vCard help
-clawdbot xmpp vcard
+openclaw xmpp vcard
 
 # View current vCard
-clawdbot xmpp vcard get
+openclaw xmpp vcard get
 
 # Set vCard field
-clawdbot xmpp vcard set fn "My Bot Name"
-clawdbot xmpp vcard set nickname "bot"
-clawdbot xmpp vcard set url "https://github.com/anomalyco/clawdbot"
-clawdbot xmpp vcard set desc "AI Assistant"
+openclaw xmpp vcard set fn "My Bot Name"
+openclaw xmpp vcard set nickname "bot"
+openclaw xmpp vcard set url "https://github.com/anomalyco/openclaw"
+openclaw xmpp vcard set desc "AI Assistant"
 ```
 
 ## In-XMPP Commands

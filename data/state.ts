@@ -1,4 +1,4 @@
-import type { PluginApi } from "openclaw";
+import type { PluginApi } from "clawdbot";
 
 export const state = {
   api: null as PluginApi | null,

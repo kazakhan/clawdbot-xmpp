@@ -2,8 +2,8 @@
 
 ## Prerequisites
 - XMPP server running (kazakhan.com)
-- ClawdBot gateway running
-- Test accounts: bot@, abot@, clawdbothome@, jamie@
+- OpenClaw gateway running
+- Test accounts: bot@, abot@, openclawhome@, jamie@
 - Test room: general@conference.kazakhan.com
 
 ---
@@ -13,7 +13,7 @@
 ### 1.1 Send Direct Message (Bot -> User)
 **Command:**
 ```
-clawdbot xmpp msg jamie@kazakhan.com "Hello Jamie, this is a test"
+openclaw xmpp msg jamie@kazakhan.com "Hello Jamie, this is a test"
 ```
 
 **Expected:**
@@ -26,7 +26,7 @@ clawdbot xmpp msg jamie@kazakhan.com "Hello Jamie, this is a test"
 
 **Expected:**
 - Message queued in message store
-- Visible via: `clawdbot xmpp poll`
+- Visible via: `openclaw xmpp poll`
 - Logs show: `Message added to queue`
 
 ### 1.3 Message with Agent Response
@@ -45,7 +45,7 @@ clawdbot xmpp msg jamie@kazakhan.com "Hello Jamie, this is a test"
 ### 2.1 Join Room
 **Command:**
 ```
-clawdbot xmpp join general@conference.kazakhan.com
+openclaw xmpp join general@conference.kazakhan.com
 ```
 **Or via slash command:**
 ```
@@ -53,8 +53,8 @@ clawdbot xmpp join general@conference.kazakhan.com
 ```
 
 **Expected:**
-- Bot joins room with default nick (clawdbot or configured)
-- Confirmation in chat: `Joined room: general@conference.kazakhan.com as clawdbot`
+- Bot joins room with default nick (openclaw or configured)
+- Confirmation in chat: `Joined room: general@conference.kazakhan.com as openclaw`
 - Bot visible in room roster
 
 ### 2.2 Receive Group Message
@@ -77,7 +77,7 @@ clawdbot xmpp join general@conference.kazakhan.com
 ### 2.4 Leave Room
 **Command:**
 ```
-clawdbot xmpp leave general@conference.kazakhan.com
+openclaw xmpp leave general@conference.kazakhan.com
 ```
 **Or via slash command:**
 ```
@@ -95,7 +95,7 @@ clawdbot xmpp leave general@conference.kazakhan.com
 ### 3.1 Status Command
 **Command:**
 ```
-clawdbot xmpp status
+openclaw xmpp status
 ```
 
 **Expected:**
@@ -106,7 +106,7 @@ clawdbot xmpp status
 ### 3.2 Start Command
 **Command:**
 ```
-clawdbot xmpp start
+openclaw xmpp start
 ```
 
 **Expected:**
@@ -117,7 +117,7 @@ clawdbot xmpp start
 ### 3.3 Roster Command
 **Command:**
 ```
-clawdbot xmpp roster
+openclaw xmpp roster
 ```
 
 **Expected:**
@@ -127,7 +127,7 @@ clawdbot xmpp roster
 ### 3.4 Nick Command
 **Command:**
 ```
-clawdbot xmpp nick jamie@kazakhan.com Jamie
+openclaw xmpp nick jamie@kazakhan.com Jamie
 ```
 
 **Expected:**
@@ -137,7 +137,7 @@ clawdbot xmpp nick jamie@kazakhan.com Jamie
 ### 3.5 Poll Command
 **Command:**
 ```
-clawdbot xmpp poll
+openclaw xmpp poll
 ```
 
 **Expected:**
@@ -148,7 +148,7 @@ clawdbot xmpp poll
 ### 3.6 Queue Command
 **Command:**
 ```
-clawdbot xmpp queue
+openclaw xmpp queue
 ```
 
 **Expected:**
@@ -158,7 +158,7 @@ clawdbot xmpp queue
 ### 3.7 Clear Command
 **Command:**
 ```
-clawdbot xmpp clear
+openclaw xmpp clear
 ```
 
 **Expected:**
@@ -168,10 +168,10 @@ clawdbot xmpp clear
 ### 3.8 vCard Commands
 **Command:**
 ```
-clawdbot xmpp vcard help
-clawdbot xmpp vcard get
-clawdbot xmpp vcard set fn "My Bot Name"
-clawdbot xmpp vcard set nickname bot
+openclaw xmpp vcard help
+openclaw xmpp vcard get
+openclaw xmpp vcard set fn "My Bot Name"
+openclaw xmpp vcard set nickname bot
 ```
 
 **Expected:**
@@ -339,23 +339,23 @@ clawdbot xmpp vcard set nickname bot
 
 ```bash
 # Start gateway
-clawdbot xmpp start
+openclaw xmpp start
 sleep 3
 
 # Check status
-clawdbot xmpp status
+openclaw xmpp status
 
 # Test commands
-clawdbot xmpp roster
-clawdbot xmpp queue
-clawdbot xmpp poll
+openclaw xmpp roster
+openclaw xmpp queue
+openclaw xmpp poll
 
 # Send test message
-clawdbot xmpp msg jamie@kazakhan.com "Test message $(date)"
+openclaw xmpp msg jamie@kazakhan.com "Test message $(date)"
 
 # Check queue after receiving
-clawdbot xmpp poll
+openclaw xmpp poll
 
 # vCard test
-clawdbot xmpp vcard get
+openclaw xmpp vcard get
 ```

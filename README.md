@@ -1,6 +1,6 @@
-# ClawdBot XMPP Plugin
+# OpenClaw XMPP Plugin
 
-A full-featured XMPP channel plugin for ClawdBot that enables XMPP/Jabber integration with support for 1:1 chat, multi-user chat (MUC), and CLI management.
+A full-featured XMPP channel plugin for OpenClaw that enables XMPP/Jabber integration with support for 1:1 chat, multi-user chat (MUC), and CLI management.
 
 ## Status: ✅ WORKING
 
@@ -39,7 +39,7 @@ The XMPP plugin supports **shared session memory** between direct chat and group
 - **Known Users**: When a user messages directly first, their nick is learned for future groupchat sessions
 
 ### Session Memory Configuration
-Add to `~/.clawdbot/clawdbot.json`:
+Add to `~/.openclaw/openclaw.json`:
 ```json
 {
   "agents": {
@@ -58,20 +58,20 @@ Add to `~/.clawdbot/clawdbot.json`:
 ## Commands
 
 ```
-clawdbot xmpp --help
-clawdbot xmpp status
-clawdbot xmpp msg user@domain.com "Hello"
-clawdbot xmpp roster
-clawdbot xmpp nick <jid> <name>
-clawdbot xmpp join <room> [nick]
-clawdbot xmpp poll
-clawdbot xmpp clear
-clawdbot xmpp queue
+openclaw xmpp --help
+openclaw xmpp status
+openclaw xmpp msg user@domain.com "Hello"
+openclaw xmpp roster
+openclaw xmpp nick <jid> <name>
+openclaw xmpp join <room> [nick]
+openclaw xmpp poll
+openclaw xmpp clear
+openclaw xmpp queue
 ```
 
-Or use the standard ClawdBot message command:
+Or use the standard OpenClaw message command:
 ```bash
-clawdbot message send --channel xmpp --target user@domain.com --message "Hello"
+openclaw message send --channel xmpp --target user@domain.com --message "Hello"
 ```
 
 ## Features
@@ -99,16 +99,16 @@ clawdbot message send --channel xmpp --target user@domain.com --message "Hello"
 - **MUC Invite Handling**: Auto-accept room invitations
 
 ### 🔧 CLI Integration
-All commands work through the ClawdBot CLI:
+All commands work through the OpenClaw CLI:
 ```bash
-clawdbot xmpp status              # Check connection status
-clawdbot xmpp msg <jid> <msg>    # Send direct messages
-clawdbot xmpp join <room> [nick] # Join MUC rooms
-clawdbot xmpp roster             # View current roster
-clawdbot xmpp nick <jid> <name>  # Set roster nickname
-clawdbot xmpp poll               # Poll message queue
-clawdbot xmpp clear              # Clear message queue
-clawdbot xmpp queue              # Show queue status
+openclaw xmpp status              # Check connection status
+openclaw xmpp msg <jid> <msg>    # Send direct messages
+openclaw xmpp join <room> [nick] # Join MUC rooms
+openclaw xmpp roster             # View current roster
+openclaw xmpp nick <jid> <name>  # Set roster nickname
+openclaw xmpp poll               # Poll message queue
+openclaw xmpp clear              # Clear message queue
+openclaw xmpp queue              # Show queue status
 ```
 
 ### 🔄 Message Queue System
@@ -120,17 +120,17 @@ clawdbot xmpp queue              # Show queue status
 
 ### Prerequisites
 - Node.js (v16 or higher)
-- ClawdBot installation (2026.1.24-3 or later with CLI fixes)
+- OpenClaw installation (2026.1.24-3 or later with CLI fixes)
 - XMPP server account (Prosody, ejabberd, etc.)
 
 ### Installation
-1. Plugin is located at `~/.clawdbot/extensions/xmpp/`
-2. Ensure ClawdBot is configured with XMPP channel enabled
+1. Plugin is located at `~/.openclaw/extensions/xmpp/`
+2. Ensure OpenClaw is configured with XMPP channel enabled
 3. Gateway must be running for message sending to work
 
 ## Configuration
 
-Add to `~/.clawdbot/clawdbot.json`:
+Add to `~/.openclaw/openclaw.json`:
 ```json
 {
   "plugins": {
@@ -164,16 +164,16 @@ Add to `~/.clawdbot/clawdbot.json`:
 
 ```bash
 # Check XMPP status
-clawdbot xmpp status
+openclaw xmpp status
 
 # Send a message
-clawdbot xmpp msg user@domain.com "Hello from ClawdBot!"
+openclaw xmpp msg user@domain.com "Hello from OpenClaw!"
 
 # Join a MUC room
-clawdbot xmpp join room@conference.domain.com
+openclaw xmpp join room@conference.domain.com
 
 # Or use the standard message command
-clawdbot message send --channel xmpp --target user@domain.com --message "Hello"
+openclaw message send --channel xmpp --target user@domain.com --message "Hello"
 ```
 
 ## Architecture
@@ -181,20 +181,20 @@ clawdbot message send --channel xmpp --target user@domain.com --message "Hello"
 The plugin consists of:
 - `index.ts` - Main plugin with XMPP client, message handling, and CLI registration
 - `data/commands.ts` - CLI command definitions
-- `clawdbot.plugin.json` - Plugin metadata with `"cli": ["xmpp"]`
+- `openclaw.plugin.json` - Plugin metadata with `"cli": ["xmpp"]`
 
 ## Troubleshooting
 
 ### "unknown command 'xmpp'"
-- Ensure ClawdBot CLI fixes are applied (see `clawdbot-cli-fix.zip`)
-- Run `clawdbot plugins list` to verify plugin loads
+- Ensure OpenClaw CLI fixes are applied (see `openclaw-cli-fix.zip`)
+- Run `openclaw plugins list` to verify plugin loads
 
 ### "No XMPP client available"
-- Gateway must be running: `clawdbot gateway`
+- Gateway must be running: `openclaw gateway`
 - Messages route through gateway when client not available locally
 
 ### Messages not sending
-- Verify gateway is running: `clawdbot gateway status`
+- Verify gateway is running: `openclaw gateway status`
 - Check target JID format: `user@domain.com`
 
 ## Files
@@ -203,7 +203,7 @@ The plugin consists of:
 xmpp/
 ├── index.ts              # Main plugin
 ├── package.json          # Dependencies
-├── clawdbot.plugin.json  # Plugin metadata
+├── openclaw.plugin.json  # Plugin metadata
 ├── data/
 │   └── commands.ts       # CLI commands
 ├── README.md             # This file
@@ -214,4 +214,4 @@ xmpp/
 
 ## License
 
-Part of ClawdBot ecosystem. See main repository for license info.
+Part of OpenClaw ecosystem. See main repository for license info.

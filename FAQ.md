@@ -58,7 +58,7 @@ Shared sessions allow the bot to maintain memory continuity between direct chat 
 3. **Manual Mapping**: Use `/mapnick :nickname user@domain.com` to manually map room nicks to JIDs.
 
 ### How do I enable session memory searching?
-Add to `~/.clawdbot/clawdbot.json`:
+Add to `~/.openclaw/openclaw.json`:
 ```json
 {
   "agents": {
@@ -142,10 +142,10 @@ Basic moderation is possible through slash commands. Advanced moderation would r
 ## Whiteboard
 
 ### What does `/whiteboard draw` actually do?
-It forwards the request to ClawdBot agents with `whiteboardRequest: true` flag. The actual image generation depends on:
+It forwards the request to OpenClaw agents with `whiteboardRequest: true` flag. The actual image generation depends on:
 1. Agent capabilities
 2. Available image generation services
-3. ClawdBot configuration
+3. OpenClaw configuration
 
 ### Can I use it with Stable Diffusion/DALL-E/Midjourney?
 Yes, if you have an agent configured to use those services. The plugin just routes the request.
@@ -161,10 +161,10 @@ It only accepts HTTP/HTTPS URLs. For local files, use `/file send` instead.
 3. Test with XMPP client
 
 ### Can I use this as a base for my own XMPP bot?
-Yes! The plugin provides a solid foundation for XMPP bot development with ClawdBot.
+Yes! The plugin provides a solid foundation for XMPP bot development with OpenClaw.
 
 ### How do I debug connection issues?
-Enable verbose logging in ClawdBot and check:
+Enable verbose logging in OpenClaw and check:
 - Connection attempts
 - Authentication process
 - Stanza exchange
@@ -190,15 +190,15 @@ For development, it's acceptable. For production, configure proper TLS certifica
 Yes, through contact management and potential whitelist implementation.
 
 ### Are passwords stored securely?
-Passwords are stored in `clawdbot.json` configuration. Ensure proper file permissions.
+Passwords are stored in `openclaw.json` configuration. Ensure proper file permissions.
 
 ## Integration
 
-### Can it work with other ClawdBot plugins?
-Yes, it integrates with the ClawdBot channel system and can work alongside other plugins.
+### Can it work with other OpenClaw plugins?
+Yes, it integrates with the OpenClaw channel system and can work alongside other plugins.
 
 ### How do I get messages into my agent?
-Messages are routed through ClawdBot's channel system. Ensure your agent is listening to the `xmpp` channel.
+Messages are routed through OpenClaw's channel system. Ensure your agent is listening to the `xmpp` channel.
 
 ### Can I use it with webhooks or APIs?
 Not directly, but you could extend the plugin to support webhook integration.

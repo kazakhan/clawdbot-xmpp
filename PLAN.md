@@ -1,7 +1,7 @@
 # XMPP Plugin Code Review - Refactoring Plan
 
 ## Overview
-The XMPP plugin at `C:\Users\kazak\.clawdbot\extensions\xmpp` has significant redundancy and maintainability issues. This plan outlines a phased approach to refactor and clean up the codebase.
+The XMPP plugin at `C:\Users\kazak\.openclaw\extensions\xmpp` has significant redundancy and maintainability issues. This plan outlines a phased approach to refactor and clean up the codebase.
 
 ---
 
@@ -401,7 +401,7 @@ interface SlashCommandContext {
 
 1. **Priority**: Should I focus on removing redundancies first (Phase 1), or start with modularization (Phase 2)?
 
-2. **Backward Compatibility**: Are the CLI commands (`clawdbot xmpp vcard`, `clawdbot xmpp roster`) actively used by users? Should I preserve them exactly?
+2. **Backward Compatibility**: Are the CLI commands (`openclaw xmpp vcard`, `openclaw xmpp roster`) actively used by users? Should I preserve them exactly?
 
 3. **Runtime API**: Which inbound message routing method is actually stable? The code tries many approaches but only one works. I need to determine the correct API before simplifying.
 

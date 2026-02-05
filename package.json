@@ -1,14 +1,14 @@
 {
   "name": "xmpp",
   "version": "1.0.0",
-  "description": "XMPP channel plugin for ClawdBot with file transfer and whiteboard support",
+  "description": "XMPP channel plugin for OpenClaw with file transfer and whiteboard support",
   "private": true,
   "type": "module",
   "main": "index.ts",
   "bin": {
-    "clawdbot-xmpp": "./cli-standalone.js"
+    "openclaw-xmpp": "./cli-standalone.js"
   },
-  "clawdbot": {
+  "openclaw": {
     "extensions": ["./index.ts"]
   },
   "scripts": {
@@ -17,7 +17,7 @@
     "typecheck": "npx tsc --noEmit index.ts --module es2020 --target es2020 --moduleResolution node"
   },
   "keywords": [
-    "clawdbot",
+    "openclaw",
     "xmpp",
     "jabber",
     "chat",

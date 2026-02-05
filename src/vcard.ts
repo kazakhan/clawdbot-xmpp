@@ -102,10 +102,10 @@ export class VCard {
   }
   
   buildVCardXml(xml: any, localPart: string): any {
-    const fn = this.vcardData.fn || `ClawdBot (${localPart})`;
+    const fn = this.vcardData.fn || `OpenClaw (${localPart})`;
     const nickname = this.vcardData.nickname || localPart;
-    const url = this.vcardData.url || "https://github.com/anomalyco/clawdbot";
-    const desc = this.vcardData.desc || "ClawdBot XMPP Plugin - AI Assistant";
+    const url = this.vcardData.url || "https://github.com/anomalyco/openclaw";
+    const desc = this.vcardData.desc || "OpenClaw XMPP Plugin - AI Assistant";
     const avatarUrl = this.vcardData.avatarUrl || "";
     
     const vcardXml = xml("vCard", { xmlns: "vcard-temp" },

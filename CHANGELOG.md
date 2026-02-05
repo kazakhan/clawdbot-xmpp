@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to the ClawdBot XMPP plugin will be documented in this file.
+All notable changes to the OpenClaw XMPP plugin will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
@@ -31,7 +31,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Agent context properly uses shared session key for memory continuity
 
 ### Configuration
-Add to `~/.clawdbot/clawdbot.json` for session memory:
+Add to `~/.openclaw/openclaw.json` for session memory:
 ```json
 {
   "agents": {
@@ -85,18 +85,18 @@ Add to `~/.clawdbot/clawdbot.json` for session memory:
 
 ### Fixed
 - **CLI Registration**: Fixed `registerCli` callback to properly register XMPP commands
-- **Message Routing**: `clawdbot xmpp msg` now routes through gateway to agents via `clawdbot message send --channel xmpp`
+- **Message Routing**: `openclaw xmpp msg` now routes through gateway to agents via `openclaw message send --channel xmpp`
 - **Auto-Join**: Disabled auto-join by default to prevent connection drops on non-existent rooms; requires `autoJoinRooms: true` in config
 - **Connection Stability**: Added keepalive presence pings and offline handler to prevent ECONNRESET errors
 
 ### Changed
 - **CLI Commands**: Simplified command structure with proper Commander.js pattern
-- **Message Archive**: Removed conflicting `messages` subcommand to avoid clashes with clawdbot built-in commands
+- **Message Archive**: Removed conflicting `messages` subcommand to avoid clashes with openclaw built-in commands
 
 ## [1.0.0] - 2026-01-31
 
 ### Added
-- **Initial release** of ClawdBot XMPP plugin with full XMPP protocol support
+- **Initial release** of OpenClaw XMPP plugin with full XMPP protocol support
 - **XMPP Client Core**: Complete implementation using `@xmpp/client` library
 - **Multi-User Chat (MUC)**: Join, participate, and manage group chat rooms
 - **Direct Messaging**: 1:1 chat with individual users
@@ -108,7 +108,7 @@ Add to `~/.clawdbot/clawdbot.json` for session memory:
 - **Contact Storage**: Persistent JSON storage of XMPP contacts with names
 - **Admin Management**: Privileged commands for configured admin JIDs
 - **Subscription Handling**: Auto-approve subscription requests and establish mutual subscriptions
-- **Roster CLI Commands**: `clawdbot xmpp roster` and `clawdbot xmpp nick` for roster management
+- **Roster CLI Commands**: `openclaw xmpp roster` and `openclaw xmpp nick` for roster management
 
 ### File Transfer
 - **HTTP Upload (XEP-0363)**: Send files via HTTP Upload protocol with server slot negotiation
@@ -144,12 +144,12 @@ Add to `~/.clawdbot/clawdbot.json` for session memory:
 - **Persistent Storage**: vCard data saved to JSON file for persistence
 
 ### CLI Integration
-- **Status Monitoring**: `clawdbot xmpp status` - Check connection status
-- **Message Sending**: `clawdbot xmpp msg <jid> <message>` - Send direct messages
-- **Room Management**: `clawdbot xmpp join <room> [nick]` - Join MUC rooms
-- **Queue Operations**: `clawdbot xmpp poll|clear|queue` - Manage message queue
-- **Roster Access**: `clawdbot xmpp roster` - View current roster
-- **Nick Management**: `clawdbot xmpp nick <jid> <name>` - Set roster nicknames
+- **Status Monitoring**: `openclaw xmpp status` - Check connection status
+- **Message Sending**: `openclaw xmpp msg <jid> <message>` - Send direct messages
+- **Room Management**: `openclaw xmpp join <room> [nick]` - Join MUC rooms
+- **Queue Operations**: `openclaw xmpp poll|clear|queue` - Manage message queue
+- **Roster Access**: `openclaw xmpp roster` - View current roster
+- **Nick Management**: `openclaw xmpp nick <jid> <name>` - Set roster nicknames
 
 ### Message Queue System
 - **Inbound Queue**: Temporary storage for inbound messages awaiting agent processing
@@ -159,11 +159,11 @@ Add to `~/.clawdbot/clawdbot.json` for session memory:
 - **Queue Statistics**: Track processed and unprocessed messages
 
 ### Technical Implementation
-- **TypeScript**: Fully typed implementation running natively in ClawdBot
+- **TypeScript**: Fully typed implementation running natively in OpenClaw
 - **Modular Architecture**: Separated concerns with Contacts, VCard, and command handlers
 - **Persistent Storage**: JSON-based storage for contacts, admins, and vCard data
 - **Error Handling**: Comprehensive error catching and logging
-- **Runtime Integration**: Full ClawdBot channel plugin architecture
+- **Runtime Integration**: Full OpenClaw channel plugin architecture
 - **Multi-Account Ready**: Support for multiple XMPP accounts configuration
 
 ### Configuration

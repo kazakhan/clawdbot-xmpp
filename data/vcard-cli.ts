@@ -17,7 +17,7 @@ interface VCardData {
 }
 
 function loadXmppConfig(): XmppConfig {
-  const configPath = path.join(process.env.USERPROFILE || process.env.HOME || '', '.openclaw', 'openclaw.json');
+  const configPath = path.join(process.env.USERPROFILE || process.env.HOME || '', '.clawdbot', 'clawdbot.json');
   
   try {
     const configData = require('fs').readFileSync(configPath, 'utf8');
