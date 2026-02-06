@@ -1462,13 +1462,52 @@ async function startXmpp(cfg: any, contacts: any, log: any, onMessage: (from: st
                       await sendReply(`❌ Failed to update vCard on server`);
                     }
                     return;
+                    } else {
+                      await sendReply(`Unknown vCard subcommand: ${subcmd}. Use /vcard help for available commands.`);
+                    }
+                    return;
+
+                case 'whiteboard':
+                  // Handle /whiteboard draw <prompt> or /whiteboard send <url>
+                  if (args.length === 0) {
+                    await sendReply(`Whiteboard commands:
+  /whiteboard draw <prompt> - Request AI image generation
+  /whiteboard send <url> - Share an image URL`);
+                    return;
+                  }
+                  
+                  const wbSubcmd = args[0].toLowerCase();
+                  if (wbSubcmd === 'draw' && args.length >= 2) {
+                    const prompt = args.slice(1).join(' ');
+                    onMessage(fromBareJid, body, { 
+                      type: messageType, 
+                      room: roomJid || undefined, 
+                      nick, 
+                      botNick,
+                      mediaUrls, 
+                      mediaPaths,
+                      whiteboardRequest: true,
+                      whiteboardPrompt: prompt
+                    });
+                    await sendReply(`🎨 Requesting image generation for: "${prompt}"`);
+                  } else if (wbSubcmd === 'send' && args.length >= 2) {
+                    const url = args[1];
+                    onMessage(fromBareJid, body, { 
+                      type: messageType, 
+                      room: roomJid || undefined, 
+                      nick, 
+                      botNick,
+                      mediaUrls: [...(mediaUrls || []), url],
+                      mediaPaths,
+                      whiteboardImage: true
+                    });
+                    await sendReply(`🖼️ Sharing image: ${url}`);
                   } else {
-                    await sendReply(`Unknown vCard subcommand: ${subcmd}. Use /vcard help for available commands.`);
+                    await sendReply(`Usage: /whiteboard draw <prompt> or /whiteboard send <url>`);
                   }
                   return;
-              
 
-               default:
+                default:
                 // Should not reach here for non-plugin commands (handled earlier)
                 await sendReply(`Unknown command: /${command}. Type /help for available commands.`);
                 return;
@@ -1858,6 +1897,13 @@ debugLog(`Registration context: ${isCliRegistration ? 'CLI' : 'Gateway'}`);
       threads: false,
       media: true,
       nativeCommands: true,
+    },
+    messaging: {
+      targetResolver: {
+        looksLikeId: (raw: string): boolean => {
+          return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(raw.trim());
+        },
+      },
     },
     configSchema: {
       type: "object",

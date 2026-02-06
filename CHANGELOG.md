@@ -5,6 +5,12 @@ All notable changes to the OpenClaw XMPP plugin will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.1] - 2026-02-06
+
+### Fixed
+- **Whiteboard Command**: Added missing `/whiteboard` command handler for AI image generation and URL sharing
+- **Unknown Target Error**: Added `looksLikeId` function to target resolver so bare JIDs (e.g., `user@domain.com`) are recognized as valid messaging targets
+
 ## [1.3.0] - 2026-02-05
 
 ### Added
