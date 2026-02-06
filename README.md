@@ -8,6 +8,34 @@ Need an XMPP server? Check out [Prosody](https://prosody.im/).
 
 Fully functional with shared sessions, memory continuity, and FTP file transfers.
 
+## Installation
+
+### Option 1: Clone Repository
+```bash
+# Create xmpp folder in extensions directory
+mkdir -p ~/.openclaw/extensions/xmpp
+
+# Clone the repository
+git clone https://github.com/kazakhan/openclaw-xmpp.git ~/.openclaw/extensions/xmpp
+
+# Install dependencies
+cd ~/.openclaw/extensions/xmpp
+npm install
+```
+
+### Option 2: Download Release
+1. Download the latest release from https://github.com/kazakhan/openclaw-xmpp/releases
+2. Extract to `~/.openclaw/extensions/`
+3. Rename `openclaw-xmpp` to `xmpp`
+4. Open terminal in `~/.openclaw/extensions/xmpp` and run:
+```bash
+npm install
+```
+
+## Setup
+- Configure your XMPP account in ~/.openclaw/openclaw.json
+- Format in Configuration below
+
 ## Security
 
 ### Contact Whitelisting
