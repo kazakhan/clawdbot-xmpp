@@ -1,7 +1,7 @@
 # OpenClaw XMPP Plugin
 
 A full-featured XMPP channel plugin for OpenClaw with support for 1:1 chat, multi-user chat (MUC), CLI management, and FTP file transfers.
-FTP was added so the OpenClaw bot could upload to server to have it's own webpage. I just wanted to see what they made, FTP was probably not the way to go...
+FTP was added so the OpenClaw bot could upload to a server to have it's own webpage. I just wanted to see what they made, FTP was probably not the way to go...
 Need an XMPP server? Check out [Prosody](https://prosody.im/).
 
 ## Status: ✅ WORKING
