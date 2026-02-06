@@ -380,6 +380,86 @@ Pending subscriptions require admin approval before users can interact with the 
       console.log('Use: openclaw xmpp subscriptions help');
     });
 
+  // Subcommand: invites <action> [args]
+  xmpp
+    .command("invites <action> [args...]")
+    .description("Manage pending room invite requests (admin only)")
+    .action(async (action: string, args: string[]) => {
+      if (action === 'help') {
+        console.log(`Room Invite commands:
+  openclaw xmpp invites pending - List pending room invites
+  openclaw xmpp invites accept <room> - Accept a room invite and join
+  openclaw xmpp invites deny <room> - Decline a room invite
+  openclaw xmpp invites help - Show this help
+
+Room invites require admin approval. Contacts are auto-approved.`);
+        return;
+      }
+
+      if (action === 'pending') {
+        const pendingInvites: Map<string, { room: string; inviter: string; reason?: string; timestamp: number; status: string }> = (global as any).pendingInvites;
+        if (pendingInvites) {
+          const pending = Array.from(pendingInvites.values())
+            .filter(p => p.status === 'pending');
+
+          if (pending.length === 0) {
+            console.log('No pending room invites.');
+          } else {
+            console.log(`Pending room invites (${pending.length}):`);
+            for (const p of pending) {
+              const date = new Date(p.timestamp).toLocaleString();
+              console.log(`  - ${p.room} (from ${p.inviter}, since ${date})`);
+              if (p.reason) {
+                console.log(`    Reason: ${p.reason}`);
+              }
+            }
+          }
+        } else {
+          console.log('Unable to access pending invites.');
+        }
+        return;
+      }
+
+      if (action === 'accept' && args.length >= 1) {
+        const room = args[0];
+        const acceptFn = (global as any).acceptRoomInvite;
+        if (acceptFn) {
+          console.log(`Accepting invite to room ${room}...`);
+          const success = await acceptFn(room);
+          if (success) {
+            console.log(`✅ Joined room ${room}.`);
+          } else {
+            console.log(`❌ Failed to join room ${room}.`);
+          }
+        } else {
+          console.log('Error: Room invite acceptance function not available.');
+          console.log('Make sure the XMPP gateway is running.');
+        }
+        return;
+      }
+
+      if (action === 'deny' && args.length >= 1) {
+        const room = args[0];
+        const denyFn = (global as any).denyRoomInvite;
+        if (denyFn) {
+          console.log(`Denying invite to room ${room}...`);
+          const success = await denyFn(room);
+          if (success) {
+            console.log(`✅ Invite to room ${room} declined.`);
+          } else {
+            console.log(`❌ Failed to decline invite.`);
+          }
+        } else {
+          console.log('Error: Room invite denial function not available.');
+          console.log('Make sure the XMPP gateway is running.');
+        }
+        return;
+      }
+
+      console.log(`Invalid invite command: ${action}`);
+      console.log('Use: openclaw xmpp invites help');
+    });
+
   // Subcommand: ftp <action> [args]
   xmpp
     .command("ftp <action> [args...]")

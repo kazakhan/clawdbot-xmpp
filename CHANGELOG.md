@@ -44,12 +44,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Updated `requestUploadSlot()` to validate sizes
   - Updated SI file transfer handler to reject oversized files
 
+**4. Admin Approval for MUC Room Invites**
+- **Issue**: `index.ts:1195-1220` automatically joined ANY MUC room when invited, allowing anyone to add the bot to malicious rooms
+- **Solution**: Modified invite handler to require admin approval:
+  - Existing contacts are still auto-approved (backward compatible)
+  - New invites are queued in `pendingInvites` Map
+  - Admins receive XMPP notifications of pending invites
+  - Added CLI commands: `openclaw xmpp invites pending|accept|deny`
+- **New Files/Modules**:
+  - `PendingInvite` interface for tracking pending invites
+  - `acceptRoomInvite()` helper function to join approved rooms
+  - `denyRoomInvite()` helper function to decline invites
+- **Behavior Change**: The bot no longer auto-joins rooms; invites from non-contacts require admin approval
+
 ### Added
 - **Subscription Management Commands**: New CLI commands to manage pending subscription requests
   - `openclaw xmpp subscriptions` - Show help
   - `openclaw xmpp subscriptions pending` - List pending requests
   - `openclaw xmpp subscriptions approve <jid>` - Approve request
   - `openclaw xmpp subscriptions deny <jid>` - Deny request
+- **Room Invite Management Commands**: New CLI commands to manage pending room invites
+  - `openclaw xmpp invites` - Show help
+  - `openclaw xmpp invites pending` - List pending invites
+  - `openclaw xmpp invites accept <room>` - Accept invite and join room
+  - `openclaw xmpp invites deny <room>` - Decline invite
 
 ## [1.5.1] - 2026-02-06
 

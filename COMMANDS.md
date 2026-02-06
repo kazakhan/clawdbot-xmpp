@@ -111,6 +111,25 @@ openclaw xmpp subscriptions approve user@example.com
 openclaw xmpp subscriptions deny user@example.com
 ```
 
+### `openclaw xmpp invites`
+Manage pending room invite requests (admin only).
+
+Room invites now require admin approval for security. Invites from approved contacts are auto-approved.
+
+```bash
+# Show invites help
+openclaw xmpp invites
+
+# List pending room invites
+openclaw xmpp invites pending
+
+# Accept a room invite and join
+openclaw xmpp invites accept room@conference.example.com
+
+# Decline a room invite
+openclaw xmpp invites deny room@conference.example.com
+```
+
 ### FTP
 - **FTP File Management**: CLI commands to upload, download, list, and delete files via FTP using same credentials as XMPP server
   - `openclaw xmpp ftp upload <local-path> [remote-name]` - Upload file to FTP (overwrites existing)
