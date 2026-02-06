@@ -5,7 +5,36 @@ All notable changes to the OpenClaw XMPP plugin will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.3.1] - 2026-02-06
+## [1.5.2] - 2026-02-07
+
+### Security
+
+**1. Enable TLS Certificate Verification**
+- **Issue**: `index.ts:452` had `tls: { rejectUnauthorized: false }` which disabled certificate verification, making connections vulnerable to MITM attacks
+- **Solution**: Removed the insecure TLS configuration. XMPP client now properly validates server certificates by default
+- **Risk**: If connecting to servers with self-signed certificates, add the server's certificate to the system's trust store
+
+**2. Remove Auto-Subscription Approval**
+- **Issue**: `index.ts:6647-6680` automatically approved ALL subscription requests and added senders as contacts, allowing any XMPP user to become a contact
+- **Solution**: Modified subscription handler to require admin approval:
+  - Existing contacts are still auto-approved (backward compatible)
+  - New requests are queued in `pendingSubscriptions` Map
+  - Admins receive XMPP notifications of pending requests
+  - Added CLI commands: `openclaw xmpp subscriptions pending|approve|deny`
+- **New Files/Modules**:
+  - `PendingSubscription` interface for tracking pending requests
+  - `approveSubscription()` helper function to approve and add contacts
+  - `denySubscription()` helper function to reject requests
+- **Behavior Change**: Any XMPP user can no longer auto-subscribe; must be approved by admin
+
+### Added
+- **Subscription Management Commands**: New CLI commands to manage pending subscription requests
+  - `openclaw xmpp subscriptions` - Show help
+  - `openclaw xmpp subscriptions pending` - List pending requests
+  - `openclaw xmpp subscriptions approve <jid>` - Approve request
+  - `openclaw xmpp subscriptions deny <jid>` - Deny request
+
+## [1.5.1] - 2026-02-06
 
 ### Fixed
 - **Whiteboard Command**: Added missing `/whiteboard` command handler for AI image generation and URL sharing
@@ -38,7 +67,7 @@ Add `ftpPort` to your XMPP account config for FTP file management:
 ## [Unreleased]
 
 ### Security
-- **TLS Certificate Verification**: Removed insecure NODE_TLS_REJECT_UNAUTHORIZED workaround now that XMPP server has proper certificate
+- **TLS Certificate Verification**: Removed insecure `rejectUnauthorized: false` TLS option, enforcing proper certificate validation
 
 ### Added
 - **Shared Session Memory**: Direct chat and groupchat messages now share the same session when users are identified, enabling persistent memory across conversation types

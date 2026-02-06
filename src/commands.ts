@@ -300,6 +300,86 @@ Note: Commands connect directly to XMPP server.`);
       }
     });
 
+  // Subcommand: subscriptions <action> [args]
+  xmpp
+    .command("subscriptions <action> [args...]")
+    .description("Manage pending subscription requests (admin only)")
+    .action(async (action: string, args: string[]) => {
+      // Import pending subscriptions from main module
+      const globals = global as any;
+
+      if (action === 'help') {
+        console.log(`Subscription commands:
+  openclaw xmpp subscriptions pending - List pending subscription requests
+  openclaw xmpp subscriptions approve <jid> - Approve a pending subscription request
+  openclaw xmpp subscriptions deny <jid> - Deny a pending subscription request
+  openclaw xmpp subscriptions help - Show this help
+
+Pending subscriptions require admin approval before users can interact with the bot.`);
+        return;
+      }
+
+      if (action === 'pending') {
+        const pendingSubs: Map<string, { jid: string; timestamp: number; status: string }> | undefined = globals.pendingSubscriptions;
+        if (pendingSubs) {
+          const pending = Array.from(pendingSubs.values())
+            .filter(p => p.status === 'pending');
+
+          if (pending.length === 0) {
+            console.log('No pending subscription requests.');
+          } else {
+            console.log(`Pending subscription requests (${pending.length}):`);
+            for (const p of pending) {
+              const date = new Date(p.timestamp).toLocaleString();
+              console.log(`  - ${p.jid} (since ${date})`);
+            }
+          }
+        } else {
+          console.log('Unable to access pending subscriptions.');
+        }
+        return;
+      }
+
+      if (action === 'approve' && args.length >= 1) {
+        const jid = args[0];
+        const approveFn = globals.approveSubscription;
+        if (approveFn) {
+          console.log(`Approving subscription request from ${jid}...`);
+          const success = await approveFn(jid);
+          if (success) {
+            console.log(`✅ Subscription request approved.`);
+          } else {
+            console.log(`❌ Failed to approve subscription request.`);
+          }
+        } else {
+          console.log('Error: Subscription approval function not available.');
+          console.log('Make sure the XMPP gateway is running.');
+        }
+        return;
+      }
+
+      if (action === 'deny' && args.length >= 1) {
+        const jid = args[0];
+        const denyFn = globals.denySubscription;
+        if (denyFn) {
+          console.log(`Denying subscription request from ${jid}...`);
+          const success = await denyFn(jid);
+          if (success) {
+            console.log(`✅ Subscription request denied.`);
+          } else {
+            console.log(`❌ Failed to deny subscription request.`);
+          }
+        } else {
+          console.log('Error: Subscription denial function not available.');
+          console.log('Make sure the XMPP gateway is running.');
+        }
+        return;
+      }
+
+      console.log(`Invalid subscription command: ${action}`);
+      console.log('Use: openclaw xmpp subscriptions help');
+    });
+
   // Subcommand: ftp <action> [args]
   xmpp
     .command("ftp <action> [args...]")

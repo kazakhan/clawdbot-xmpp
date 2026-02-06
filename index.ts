@@ -47,6 +47,14 @@ const rateLimitMap = new Map<string, RateLimitEntry>();
 const rateLimitMaxRequests = 10; // Max commands per window
 const rateLimitWindowMs = 60000; // 1 minute window
 
+// Pending subscription requests (require admin approval)
+interface PendingSubscription {
+  jid: string;
+  timestamp: number;
+  status: 'pending' | 'approved' | 'denied';
+}
+export const pendingSubscriptions = new Map<string, PendingSubscription>();
+
 function checkRateLimit(jid: string): boolean {
   const now = Date.now();
   const entry = rateLimitMap.get(jid);
@@ -443,14 +451,13 @@ async function startXmpp(cfg: any, contacts: any, log: any, onMessage: (from: st
    
    const { client, xml } = xmppClientModule;
    
-     const xmpp = client({
-       service: cfg?.service,
-       domain: cfg?.domain,
-       username: cfg?.jid?.split("@")[0],
-       password: cfg?.password,
-        resource: getDefaultResource(),
-       tls: { rejectUnauthorized: false }
-     });
+      const xmpp = client({
+        service: cfg?.service,
+        domain: cfg?.domain,
+        username: cfg?.jid?.split("@")[0],
+        password: cfg?.password,
+        resource: getDefaultResource()
+      });
 
    // Helper to resolve room JID - add conference domain if missing
     const resolveRoomJid = (room: string): string => {
@@ -642,30 +649,140 @@ async function startXmpp(cfg: any, contacts: any, log: any, onMessage: (from: st
       const room = parts[0];
       const nick = parts[1] || '';
       
-       // Handle subscription requests (not MUC)
-      if (type === "subscribe") {
-        console.log(`📨 Received subscription request from ${from}`);
-        // Add to contacts if not already
-        const bareFrom = from.split('/')[0];
-        if (!contacts.exists(bareFrom)) {
-          contacts.add(bareFrom);
-          console.log(`📝 Added ${bareFrom} to contacts`);
-        }
-        // Auto-approve subscription
-        try {
-          const subscribed = xml("presence", { to: from, type: "subscribed" });
-          await xmpp.send(subscribed);
-          console.log(`✅ Auto-approved subscription for ${from}`);
-          
-          // Also request subscription from them (mutual)
-          const subscribe = xml("presence", { to: from, type: "subscribe" });
-          await xmpp.send(subscribe);
-          console.log(`📤 Sent subscription request to ${from}`);
-        } catch (err) {
-          console.error(`❌ Failed to handle subscription request from ${from}:`, err);
-        }
-        return;
-      }
+       // Handle subscription requests (require admin approval)
+       if (type === "subscribe") {
+         const bareFrom = from.split('/')[0];
+         console.log(`📨 Received subscription request from ${bareFrom}`);
+
+         // Check if already a contact (pre-approved)
+         if (contacts.exists(bareFrom)) {
+           try {
+             const subscribed = xml("presence", { to: from, type: "subscribed" });
+             await xmpp.send(subscribed);
+             console.log(`✅ Auto-approved subscription for existing contact ${bareFrom}`);
+
+             const subscribe = xml("presence", { to: from, type: "subscribe" });
+             await xmpp.send(subscribe);
+             console.log(`📤 Sent mutual subscription request to ${bareFrom}`);
+           } catch (err) {
+             console.error(`❌ Failed to handle subscription for contact ${bareFrom}:`, err);
+           }
+           return;
+         }
+
+         // Check if already pending
+         const existingPending = pendingSubscriptions.get(bareFrom);
+         if (existingPending && existingPending.status === 'pending') {
+           console.log(`ℹ️ Subscription request from ${bareFrom} already pending`);
+           return;
+         }
+
+         // Add to pending subscriptions (requires admin approval)
+         pendingSubscriptions.set(bareFrom, {
+           jid: bareFrom,
+           timestamp: Date.now(),
+           status: 'pending'
+         });
+         console.log(`📝 Added ${bareFrom} to pending subscriptions (requires admin approval)`);
+
+         // Notify admins
+         const adminJids = contacts.listAdmins();
+         if (adminJids.length > 0) {
+           const notificationMsg = `🔔 New subscription request from ${bareFrom}\nUse /subscriptions approve ${bareFrom} to approve or /subscriptions deny ${bareFrom} to deny.`;
+           for (const adminJid of adminJids) {
+             try {
+               const notification = xml("message", { to: adminJid, type: "chat" },
+                 xml("body", {}, notificationMsg)
+               );
+               await xmpp.send(notification);
+             } catch (err) {
+               console.error(`Failed to notify admin ${adminJid}:`, err);
+             }
+           }
+           console.log(`📢 Admins notified of pending subscription request`);
+         } else {
+           console.log(`⚠️ No admins configured - subscription request pending but no one to approve`);
+         }
+         return;
+       }
+
+       // Helper to approve pending subscription
+       async function approveSubscription(targetJid: string): Promise<boolean> {
+         const pending = pendingSubscriptions.get(targetJid);
+         if (!pending || pending.status !== 'pending') {
+           console.log(`No pending subscription found for ${targetJid}`);
+           return false;
+         }
+
+         try {
+           const subscribed = xml("presence", { to: targetJid, type: "subscribed" });
+           await xmpp.send(subscribed);
+           console.log(`✅ Approved subscription for ${targetJid}`);
+
+           const subscribe = xml("presence", { to: targetJid, type: "subscribe" });
+           await xmpp.send(subscribe);
+           console.log(`📤 Sent mutual subscription request to ${targetJid}`);
+
+           // Add to contacts
+           contacts.add(targetJid);
+           console.log(`📝 Added ${targetJid} to contacts`);
+
+           pending.status = 'approved';
+           pendingSubscriptions.set(targetJid, pending);
+
+           // Notify requester
+           try {
+             const notifyMsg = xml("message", { to: targetJid, type: "chat" },
+               xml("body", {}, "✅ Your subscription request has been approved!")
+             );
+             await xmpp.send(notifyMsg);
+           } catch (err) {
+             console.error(`Failed to notify ${targetJid} of approval:`, err);
+           }
+
+           return true;
+         } catch (err) {
+           console.error(`Failed to approve subscription for ${targetJid}:`, err);
+           return false;
+         }
+       }
+
+       // Helper to deny pending subscription
+       async function denySubscription(targetJid: string): Promise<boolean> {
+         const pending = pendingSubscriptions.get(targetJid);
+         if (!pending || pending.status !== 'pending') {
+           console.log(`No pending subscription found for ${targetJid}`);
+           return false;
+         }
+
+         try {
+           const unsubscribed = xml("presence", { to: targetJid, type: "unsubscribed" });
+           await xmpp.send(unsubscribed);
+           console.log(`❌ Denied subscription for ${targetJid}`);
+
+           pending.status = 'denied';
+           pendingSubscriptions.set(targetJid, pending);
+
+           // Notify requester
+           try {
+             const notifyMsg = xml("message", { to: targetJid, type: "chat" },
+               xml("body", {}, "❌ Your subscription request has been denied.")
+             );
+             await xmpp.send(notifyMsg);
+           } catch (err) {
+             console.error(`Failed to notify ${targetJid} of denial:`, err);
+           }
+
+           return true;
+         } catch (err) {
+           console.error(`Failed to deny subscription for ${targetJid}:`, err);
+           return false;
+         }
+       }
+
+       // Export helper functions for commands module
+       (global as any).approveSubscription = approveSubscription;
+       (global as any).denySubscription = denySubscription;
       
        // Handle other subscription types
       if (type === "subscribed" || type === "unsubscribe" || type === "unsubscribed") {
@@ -1168,20 +1285,21 @@ async function startXmpp(cfg: any, contacts: any, log: any, onMessage: (from: st
            };
            
            switch (command) {
-             case 'help':
-                   await sendReply(`Available commands (groupchat: only whoami, whiteboard, help):
-  /list - Show contacts (admin only - direct chat)
-  /add <jid> [name] - Add contact (admin only - direct chat)
-  /remove <jid> - Remove contact (admin only - direct chat)
-  /admins - List admins (admin only - direct chat)
-  /whoami - Show your info (room/nick in groupchat)
-  /join <room> [nick] - Join MUC room (admin only - direct chat)
-  /rooms - List joined rooms (admin only - direct chat)
-   /leave <room> - Leave MUC room (admin only - direct chat)
-   /invite <contact> <room> - Invite contact to room (admin only - direct chat)
-   /whiteboard - Whiteboard drawing and image sharing
-   /vcard - Manage vCard profile (admin only - direct chat)
-   /help - Show this help`);
+            case 'help':
+                    await sendReply(`Available commands (groupchat: only whoami, whiteboard, help):
+   /list - Show contacts (admin only - direct chat)
+   /add <jid> [name] - Add contact (admin only - direct chat)
+   /remove <jid> - Remove contact (admin only - direct chat)
+   /admins - List admins (admin only - direct chat)
+   /whoami - Show your info (room/nick in groupchat)
+   /join <room> [nick] - Join MUC room (admin only - direct chat)
+   /rooms - List joined rooms (admin only - direct chat)
+    /leave <room> - Leave MUC room (admin only - direct chat)
+    /invite <contact> <room> - Invite contact to room (admin only - direct chat)
+    /whiteboard - Whiteboard drawing and image sharing
+    /vcard - Manage vCard profile (admin only - direct chat)
+    /subscriptions - Manage subscription requests (admin only - CLI)
+    /help - Show this help`);
               
                 // SPECIAL CASE: /help forwards to agent ONLY in direct chat (not groupchat)
                 if (messageType === "chat" && contacts.exists(fromBareJid)) {
