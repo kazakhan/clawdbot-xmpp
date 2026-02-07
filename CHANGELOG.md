@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [1.5.3] - 2026-02-07
 
+**7. Sanitize Debug Logs**
+- **Issue**: `index.ts` used raw `debugLog()` function that logged sensitive data including JIDs, message content, and potentially credentials to `cli-debug.log`
+- **Solution**: Created `src/security/logging.ts` with `secureLog` module that automatically sanitizes sensitive data:
+  - **Automatic Redaction**: `secureLog.debug()`, `info()`, `warn()`, `error()` automatically redact:
+    - Passwords, API keys, tokens, credentials, secrets
+    - Control characters
+  - **Sensitive Pattern Detection**: Regex patterns for:
+    - `password`, `credentials`, `apiKey`, `token`, `auth`, `secret`
+    - `pwd`, `passwd`, `pass`, `key`, `privateKey`, `accessToken`
+  - **JID/IP Redaction**: Optional redaction of JIDs and IP addresses
+  - **Security/Audit Logging**: Separate `security()` and `audit()` methods for security events
+- **New Files**:
+  - `src/security/logging.ts` - Secure logging utilities
+- **Updated Functions**:
+  - All `debugLog()` calls replaced with `secureLog.debug()` for automatic sanitization
+- **Protected Data**:
+  - Passwords and credentials in logs
+  - API keys and tokens
+  - Sensitive configuration values
+
 **6. Comprehensive Input Validation**
 - **Issue**: Multiple input points lacked validation, allowing potential JID injection, path traversal, and XSS attacks
 - **Solution**: Created `src/security/validation.ts` with comprehensive validators applied to all input points:

@@ -9,7 +9,8 @@ import { secureLog } from "./src/security/logging.js";
 const debugLog = (msg: string) => {
   const logFile = path.join(__dirname, 'cli-debug.log');
   const timestamp = new Date().toISOString();
-  const sanitizedMsg = secureLog.sanitizeForXmpp(msg).sanitized || msg;
+  const validation = validators.sanitizeForXmpp(msg);
+  const sanitizedMsg = validation.valid && validation.sanitized ? validation.sanitized : msg;
   const line = `[${timestamp}] ${sanitizedMsg}\n`;
   try {
     fs.appendFileSync(logFile, line);
@@ -424,7 +425,7 @@ async function startXmpp(cfg: any, contacts: any, log: any, onMessage: (from: st
     
     // File download helper for inbound attachments (available in stanza handler)
     const downloadFile = async (url: string, tempDir: string, remoteJid?: string): Promise<string> => {
-      debugLog(`Downloading file from ${url}`);
+      secureLog.debug(`Downloading file from ${url}`);
 
       // Validate URL
       const urlValidation = validators.isValidUrl(url);
@@ -527,14 +528,14 @@ async function startXmpp(cfg: any, contacts: any, log: any, onMessage: (from: st
       return localPaths;
     };
     
-    debugLog(`Starting XMPP connection to ${cfg?.service}`);
-    debugLog(`XMPP config: jid=${cfg?.jid}, domain=${cfg?.domain}`);
+    secureLog.debug(`Starting XMPP connection to ${cfg?.service}`);
+    secureLog.debug(`XMPP config: jid=${cfg?.jid}, domain=${cfg?.domain}`);
    
    // Lazy load @xmpp/client module
    if (!xmppClientModule) {
-     debugLog("Loading @xmpp/client module...");
+     secureLog.debug("Loading @xmpp/client module...");
      xmppClientModule = await import("@xmpp/client");
-     debugLog("XMPP client module loaded");
+     secureLog.debug("XMPP client module loaded");
    }
    
    const { client, xml } = xmppClientModule;
@@ -585,7 +586,7 @@ async function startXmpp(cfg: any, contacts: any, log: any, onMessage: (from: st
       let error: any = null;
       
       const handler = (stanza: any) => {
-        debugLog(`vCard query received stanza: id=${stanza.attrs.id}, type=${stanza.attrs.type}, from=${stanza.attrs.from}`);
+        secureLog.debug(`vCard query received stanza: id=${stanza.attrs.id}, type=${stanza.attrs.type}, from=${stanza.attrs.from}`);
         if (stanza.attrs.id === id && stanza.attrs.type === 'result') {
           response = stanza;
         }
@@ -599,19 +600,19 @@ async function startXmpp(cfg: any, contacts: any, log: any, onMessage: (from: st
         if (targetJid) {
           iqAttrs.to = targetJid;
         }
-        debugLog(`Querying vCard from ${targetJid || 'self'} with id ${id}`);
+        secureLog.debug(`Querying vCard from ${targetJid || 'self'} with id ${id}`);
         await xmpp.send(xml("iq", iqAttrs, xml("vCard", { xmlns: "vcard-temp" })));
         // Wait for response
         await new Promise((resolve) => setTimeout(resolve, 1000));
       } catch (err) {
         error = err;
-        debugLog(`vCard query send error: ${err}`);
+        secureLog.debug(`vCard query send error: ${err}`);
       } finally {
         xmpp.off('stanza', handler);
       }
       
       if (error) {
-        debugLog(`vCard query error: ${error}`);
+        secureLog.debug(`vCard query error: ${error}`);
         return null;
       }
       
@@ -619,11 +620,11 @@ async function startXmpp(cfg: any, contacts: any, log: any, onMessage: (from: st
         const vcardEl = response.getChild('vCard');
         if (vcardEl) {
           const data = parseVCardXml(vcardEl);
-          debugLog(`vCard parsed: fn=${data.fn}, nickname=${data.nickname}`);
+          secureLog.debug(`vCard parsed: fn=${data.fn}, nickname=${data.nickname}`);
           return data;
         }
       }
-      debugLog(`vCard query no response for ${targetJid || 'self'}`);
+      secureLog.debug(`vCard query no response for ${targetJid || 'self'}`);
       return null;
     };
     
@@ -658,13 +659,13 @@ async function startXmpp(cfg: any, contacts: any, log: any, onMessage: (from: st
   });
 
   xmpp.on("offline", () => {
-    debugLog("XMPP went offline");
+    secureLog.debug("XMPP went offline");
     isRunning = false;
   });
 
    xmpp.on("online", async (address: any) => {
       log.info("XMPP online as", address.toString());
-      debugLog("XMPP connected successfully");
+      secureLog.debug("XMPP connected successfully");
  
       // Send initial presence to appear online
       try {
@@ -728,7 +729,7 @@ async function startXmpp(cfg: any, contacts: any, log: any, onMessage: (from: st
     }
 
     xmpp.on("stanza", async (stanza: any) => {
-     // debugLog("XMPP stanza received: " + stanza.toString().substring(0, 200));
+     // secureLog.debug("XMPP stanza received: " + stanza.toString().substring(0, 200));
      
      if (stanza.is("presence")) {
       const from = stanza.attrs.from;
@@ -937,19 +938,19 @@ async function startXmpp(cfg: any, contacts: any, log: any, onMessage: (from: st
       const to = stanza.attrs.to;
       const type = stanza.attrs.type;
       const id = stanza.attrs.id;
-      debugLog(`IQ stanza: type=${type}, from=${from}, id=${id}`);
+      secureLog.debug(`IQ stanza: type=${type}, from=${from}, id=${id}`);
       
       // Handle SI File Transfer requests (XEP-0096)
       if (type === "set") {
         const si = stanza.getChild("si", "http://jabber.org/protocol/si");
         if (si) {
-          debugLog(`SI file transfer offer from ${from}`);
+          secureLog.debug(`SI file transfer offer from ${from}`);
           // Check for file transfer profile
           const file = si.getChild("file", "http://jabber.org/protocol/si/profile/file-transfer");
            if (file) {
              const filename = file.attrs.name || "unknown";
              const size = file.attrs.size ? parseInt(file.attrs.size) : 0;
-             debugLog(`File offer: ${filename} (${size} bytes)`);
+             secureLog.debug(`File offer: ${filename} (${size} bytes)`);
 
              // Validate file size
              if (size > 0) {
@@ -1426,7 +1427,7 @@ async function startXmpp(cfg: any, contacts: any, log: any, onMessage: (from: st
         const body = stanza.getChildText("body");
         if (!body && mediaUrls.length === 0) return;
          
-         debugLog(`XMPP message: type=${messageType}, from=${from}, body=${body?.substring(0, 50)}`);
+         secureLog.debug(`XMPP message: type=${messageType}, from=${from}, body=${body?.substring(0, 50)}`);
           
          // fromBareJid already defined above for file downloads
          
@@ -1437,7 +1438,7 @@ async function startXmpp(cfg: any, contacts: any, log: any, onMessage: (from: st
         // - Chat non-plugin commands: Forwarded to agent only if sender is contact
         // Plugin commands: list, add, remove, admins, whoami, join, rooms, leave, invite, whiteboard, help
         if (body && body.startsWith('/')) {
-           debugLog(`[SLASH] Command: ${body.substring(0, 100)}`);
+           secureLog.debug(`[SLASH] Command: ${body.substring(0, 100)}`);
           
           // Extract room and nick for groupchat
          const roomJid = messageType === "groupchat" ? from.split("/")[0] : null;
@@ -1481,12 +1482,12 @@ async function startXmpp(cfg: any, contacts: any, log: any, onMessage: (from: st
           const pluginCommands = new Set(['list', 'add', 'remove', 'admins', 'whoami', 'join', 'rooms', 'leave', 'invite', 'whiteboard', 'vcard', 'help']);
           const isPluginCommand = pluginCommands.has(command);
           
-          debugLog(`[SLASH] type=${messageType}, cmd=/${command}, isPlugin=${isPluginCommand}`);
+          secureLog.debug(`[SLASH] type=${messageType}, cmd=/${command}, isPlugin=${isPluginCommand}`);
          
           // Groupchat handling: only process plugin commands, ignore others
           if (messageType === "groupchat") {
             if (!isPluginCommand) {
-              debugLog(`Ignoring non-plugin slash command in groupchat: /${command}`);
+              secureLog.debug(`Ignoring non-plugin slash command in groupchat: /${command}`);
               return; // DO NOT forward to agents
             }
           }
@@ -1498,10 +1499,10 @@ async function startXmpp(cfg: any, contacts: any, log: any, onMessage: (from: st
             } else {
               // Non-plugin command in chat - only forward if sender is contact
               if (contacts.exists(fromBareJid)) {
-                debugLog(`Forwarding non-plugin command /${command} to agent`);
+                secureLog.debug(`Forwarding non-plugin command /${command} to agent`);
                 onMessage(fromBareJid, body, { type: "chat", mediaUrls, mediaPaths });
               } else {
-                debugLog(`Ignoring non-plugin slash command from non-contact: /${command}`);
+                secureLog.debug(`Ignoring non-plugin slash command from non-contact: /${command}`);
                 await sendReply(`❌ Unknown command: /${command}. You must be a contact to use bot commands.`);
               }
               return; // Stop further processing
@@ -1540,7 +1541,7 @@ async function startXmpp(cfg: any, contacts: any, log: any, onMessage: (from: st
               
                 // SPECIAL CASE: /help forwards to agent ONLY in direct chat (not groupchat)
                 if (messageType === "chat" && contacts.exists(fromBareJid)) {
-                   debugLog(`Forwarding /help to agent`);
+                   secureLog.debug(`Forwarding /help to agent`);
                    onMessage(fromBareJid, body, { type: "chat", mediaUrls, mediaPaths });
                 }
                 // NO FORWARDING in groupchat - only local processing
@@ -1883,10 +1884,10 @@ async function startXmpp(cfg: any, contacts: any, log: any, onMessage: (from: st
       }
       
        // Normal message processing
-       debugLog(`[NORMAL] Processing message (type=${messageType})`);
+       secureLog.debug(`[NORMAL] Processing message (type=${messageType})`);
        // Safety check: slash commands should never reach here
        if (body.startsWith('/')) {
-         debugLog(`[ERROR] Slash command reached normal processing! This should not happen.`);
+         secureLog.debug(`[ERROR] Slash command reached normal processing! This should not happen.`);
          return;
        }
        if (messageType === "groupchat") {
@@ -1894,27 +1895,27 @@ async function startXmpp(cfg: any, contacts: any, log: any, onMessage: (from: st
          const roomJid = from.split("/")[0];
          const nick = from.split("/")[1] || "";
          if (!nick) {
-           debugLog(`Ignoring room message without nick (likely room subject)`);
+           secureLog.debug(`Ignoring room message without nick (likely room subject)`);
            return;
          }
          const botNick = roomNicks.get(roomJid);
          // Ignore messages from ourselves
          if (botNick && nick === botNick) {
-           debugLog(`Ignoring self-message from bot`);
+           secureLog.debug(`Ignoring self-message from bot`);
            return;
          }
-         debugLog(`[NORMAL] Forwarding groupchat message from ${nick} to agent`);
+         secureLog.debug(`[NORMAL] Forwarding groupchat message from ${nick} to agent`);
          // For groupchat, use room JID for session
          onMessage(roomJid, body, { type: "groupchat", room: roomJid, nick, botNick, mediaUrls, mediaPaths });
        } else {
          // Direct message
          if (contacts.exists(fromBareJid)) {
-           debugLog(`[NORMAL] Forwarding chat message from ${fromBareJid} to agent`);
+           secureLog.debug(`[NORMAL] Forwarding chat message from ${fromBareJid} to agent`);
 
            // Use bare JID for session
            onMessage(fromBareJid, body, { type: "chat", mediaUrls, mediaPaths });
          } else {
-           debugLog(`Ignoring message from non-contact: ${fromBareJid}`);
+           secureLog.debug(`Ignoring message from non-contact: ${fromBareJid}`);
            log.debug(`Ignoring message from non-contact: ${fromBareJid}`);
          }
        }
@@ -1928,7 +1929,7 @@ async function startXmpp(cfg: any, contacts: any, log: any, onMessage: (from: st
 
    // HTTP File Upload (XEP-0363) helpers
    const requestUploadSlot = async (filename: string, size: number, contentType?: string): Promise<{putUrl: string, getUrl: string, headers?: Record<string, string>}> => {
-     debugLog(`Requesting upload slot for ${filename} (${size} bytes)`);
+     secureLog.debug(`Requesting upload slot for ${filename} (${size} bytes)`);
      
      // Create IQ request for upload slot
      const iqId = Math.random().toString(36).substring(2);
@@ -1938,7 +1939,7 @@ async function startXmpp(cfg: any, contacts: any, log: any, onMessage: (from: st
      
      try {
        const response = await xmpp.send(requestStanza);
-       debugLog("Upload slot response received");
+       secureLog.debug("Upload slot response received");
        
        const slot = response.getChild("slot", "urn:xmpp:http:upload:0");
        if (!slot) {
@@ -1966,7 +1967,7 @@ async function startXmpp(cfg: any, contacts: any, log: any, onMessage: (from: st
         }
        }
        
-       debugLog(`Upload slot obtained for ${filename}`);
+       secureLog.debug(`Upload slot obtained for ${filename}`);
        return { putUrl, getUrl, headers: Object.keys(putHeaders).length > 0 ? putHeaders : undefined };
      } catch (err) {
        console.error("Failed to request upload slot:", err);
@@ -1975,7 +1976,7 @@ async function startXmpp(cfg: any, contacts: any, log: any, onMessage: (from: st
    };
 
    const uploadFileViaHTTP = async (filePath: string, putUrl: string, headers?: Record<string, string>): Promise<void> => {
-     debugLog(`Uploading file ${filePath}`);
+     secureLog.debug(`Uploading file ${filePath}`);
      
      try {
        // Read file
@@ -2003,7 +2004,7 @@ async function startXmpp(cfg: any, contacts: any, log: any, onMessage: (from: st
          throw new Error(`HTTP upload failed: ${response.status} ${response.statusText}`);
        }
        
-       debugLog(`File uploaded successfully`);
+       secureLog.debug(`File uploaded successfully`);
      } catch (err) {
        console.error("File upload failed:", err);
        throw err;
@@ -2033,7 +2034,7 @@ async function startXmpp(cfg: any, contacts: any, log: any, onMessage: (from: st
        );
        
        await xmpp.send(message);
-       debugLog(`File sent successfully to ${to}`);
+       secureLog.debug(`File sent successfully to ${to}`);
      } catch (err) {
        console.error("Failed to send file via HTTP Upload:", err);
        throw err;
@@ -2042,7 +2043,7 @@ async function startXmpp(cfg: any, contacts: any, log: any, onMessage: (from: st
 
    // SI File Transfer (XEP-0096) helpers (fallback)
    const sendFileWithSITransfer = async (to: string, filePath: string, text?: string, isGroupChat?: boolean): Promise<void> => {
-     debugLog(`Attempting SI file transfer to ${to}`);
+     secureLog.debug(`Attempting SI file transfer to ${to}`);
      // For now, fallback to out-of-band URL sharing
      // TODO: Implement proper SI file transfer with bytestreams
      const filename = path.basename(filePath);
@@ -2144,17 +2145,17 @@ async function startXmpp(cfg: any, contacts: any, log: any, onMessage: (from: st
   import { registerXmppCli } from "./src/commands.js";
 
 export function register(api: any) {
-  debugLog(`register() called, pluginRegistered=${pluginRegistered}`);
+  secureLog.debug(`register() called, pluginRegistered=${pluginRegistered}`);
   if (pluginRegistered) {
     console.log("XMPP plugin already registered, skipping");
-    debugLog("Plugin already registered, skipping");
+    secureLog.debug("Plugin already registered, skipping");
     return;
   }
   pluginRegistered = true;
   const log = api.logger ?? console;
   log.info("Registering XMPP plugin");
   console.log("XMPP plugin register called - is this CLI or Gateway?");
-  debugLog("Registering XMPP plugin");
+  secureLog.debug("Registering XMPP plugin");
   
   // Check if this is CLI registration or Gateway registration
   // CLI registration: api.runtime is not available
@@ -2162,41 +2163,41 @@ export function register(api: any) {
   const isCliRegistration = !api.runtime;
   console.log(`Registration context: ${isCliRegistration ? 'CLI' : 'Gateway'}`);
   console.log(`api.runtime available: ${api.runtime ? 'yes' : 'no'}`);
-debugLog(`Registration context: ${isCliRegistration ? 'CLI' : 'Gateway'}`);
+secureLog.debug(`Registration context: ${isCliRegistration ? 'CLI' : 'Gateway'}`);
 
    // Debug: Inspect the api object
-   debugLog("=== API OBJECT INSPECTION ===");
-   debugLog("api keys: " + Object.keys(api).join(", "));
+   secureLog.debug("=== API OBJECT INSPECTION ===");
+   secureLog.debug("api keys: " + Object.keys(api).join(", "));
    const allApiProps: string[] = [];
    for (const key in api) {
      allApiProps.push(key);
    }
-   debugLog("All api properties: " + allApiProps.join(", "));
+   secureLog.debug("All api properties: " + allApiProps.join(", "));
    const apiMethods = allApiProps.filter(k => typeof api[k] === 'function');
-   debugLog("All api methods: " + apiMethods.join(", "));
+   secureLog.debug("All api methods: " + apiMethods.join(", "));
    
    // Check for runtime access (only for Gateway registration, not CLI)
    if (api.runtime && !isCliRegistration) {
      pluginRuntime = api.runtime;
-     debugLog("api.runtime set for Gateway registration, keys: " + Object.keys(api.runtime).join(", "));
+     secureLog.debug("api.runtime set for Gateway registration, keys: " + Object.keys(api.runtime).join(", "));
 
      if (api.runtime.channel) {
-       debugLog("api.runtime.channel exists, keys: " + Object.keys(api.runtime.channel).join(", "));
+       secureLog.debug("api.runtime.channel exists, keys: " + Object.keys(api.runtime.channel).join(", "));
 
        // Check if there's a generic message forwarding method
        const channelMethods = Object.keys(api.runtime.channel);
-       debugLog("Channel methods available: " + channelMethods.join(", "));
+       secureLog.debug("Channel methods available: " + channelMethods.join(", "));
 
        // Look for text, message, or routing methods
        const possibleForwardMethods = ['text', 'message', 'routing', 'dispatch', 'receive'];
        for (const method of possibleForwardMethods) {
          if (api.runtime.channel[method]) {
-           debugLog("Found channel." + method);
+           secureLog.debug("Found channel." + method);
 
            // If it's an object, log its methods
            if (typeof api.runtime.channel[method] === 'object') {
              const subMethods = Object.keys(api.runtime.channel[method]);
-             debugLog("  channel." + method + " methods: " + subMethods.slice(0, 10).join(", "));
+             secureLog.debug("  channel." + method + " methods: " + subMethods.slice(0, 10).join(", "));
            }
          }
        }
@@ -2204,35 +2205,35 @@ debugLog(`Registration context: ${isCliRegistration ? 'CLI' : 'Gateway'}`);
        // Also check session and activity which might handle messages
        if (api.runtime.channel.session) {
          const sessionMethods = Object.keys(api.runtime.channel.session);
-         debugLog("channel.session methods: " + sessionMethods.slice(0, 10).join(", "));
+         secureLog.debug("channel.session methods: " + sessionMethods.slice(0, 10).join(", "));
        }
        if (api.runtime.channel.activity) {
          const activityMethods = Object.keys(api.runtime.channel.activity);
-         debugLog("channel.activity methods: " + activityMethods.slice(0, 10).join(", "));
+         secureLog.debug("channel.activity methods: " + activityMethods.slice(0, 10).join(", "));
        }
      }
    } else if (isCliRegistration) {
-     debugLog("CLI registration - not setting pluginRuntime");
+     secureLog.debug("CLI registration - not setting pluginRuntime");
    } else {
-     debugLog("api.runtime not available");
+     secureLog.debug("api.runtime not available");
    }
-   debugLog("=== END API INSPECTION ===");
+   secureLog.debug("=== END API INSPECTION ===");
    
    // Check for emit method
-   debugLog("Checking for api.emit method...");
+   secureLog.debug("Checking for api.emit method...");
    if (typeof api.emit === 'function') {
-     debugLog("api.emit is available");
+     secureLog.debug("api.emit is available");
    } else {
-     debugLog("api.emit not found");
+     secureLog.debug("api.emit not found");
      // Check if emit is on a different object
      if (api.runtime?.emit) {
-       debugLog("api.runtime.emit is available");
+       secureLog.debug("api.runtime.emit is available");
      }
    }
    
    // Try to use api.on for event-based message forwarding
    if (typeof api.on === 'function') {
-     debugLog("api.on is available for listening to events");
+     secureLog.debug("api.on is available for listening to events");
    }
 
   const xmppChannelPlugin = {
@@ -2443,20 +2444,20 @@ gateway: {
       startAccount: async (ctx: any) => {
         const log = ctx.log;
         log?.info("XMPP gateway.startAccount called");
-        debugLog("XMPP gateway.startAccount called");
+        secureLog.debug("XMPP gateway.startAccount called");
         
         const account = ctx.account;
         const config = account.config;
         
-        debugLog(`XMPP startAccount called for account ${account.accountId}`);
+        secureLog.debug(`XMPP startAccount called for account ${account.accountId}`);
         
         if (!config?.jid?.trim() || !config?.password?.trim()) {
-          debugLog("Missing jid or password");
+          secureLog.debug("Missing jid or password");
           throw new Error("XMPP account missing jid or password");
         }
         
         log?.info(`[${account.accountId}] starting XMPP connection to ${config.service}`);
-        debugLog(`Starting XMPP connection to ${config.service}`);
+        secureLog.debug(`Starting XMPP connection to ${config.service}`);
         
         const contacts = new Contacts(config.dataDir);
         const contactList = contacts.list();
@@ -2480,11 +2481,11 @@ gateway: {
         // Check for existing connection to prevent duplicate connections
         const existingXmpp = xmppClients.get(account.accountId);
         if (existingXmpp) {
-          debugLog(`Existing XMPP client found for ${account.accountId}, stopping it first`);
+          secureLog.debug(`Existing XMPP client found for ${account.accountId}, stopping it first`);
           try {
             await existingXmpp.stop();
           } catch (err) {
-            debugLog(`Error stopping existing client: ${err}`);
+            secureLog.debug(`Error stopping existing client: ${err}`);
           }
           xmppClients.delete(account.accountId);
         }
@@ -2497,18 +2498,18 @@ gateway: {
  
          // Use pluginRuntime (from api.runtime) instead of ctx.runtime
          const runtime = pluginRuntime;
-         debugLog("Using pluginRuntime in startAccount");
+         secureLog.debug("Using pluginRuntime in startAccount");
          
           // Counter for unique message IDs
           let messageCounter = 0;
           
           const xmpp = await startXmpp(config, contacts, log, async (from: string, body: string, options?: { type?: string, room?: string, nick?: string, botNick?: string, mediaUrls?: string[], mediaPaths?: string[], whiteboardPrompt?: string, whiteboardRequest?: boolean, whiteboardImage?: boolean }) => {
             if (!isRunning) {
-              debugLog("XMPP message ignored - plugin not running");
+              secureLog.debug("XMPP message ignored - plugin not running");
               return;
             }
 
-             debugLog(`XMPP inbound from ${from}`);
+             secureLog.debug(`XMPP inbound from ${from}`);
              
               // Helper to build context payload based on message type
              // Uses shared session key (bare JID) for both direct and groupchat
@@ -2527,7 +2528,7 @@ gateway: {
                 const chatType = "direct" as const;
                 const conversationLabel = `XMPP: ${senderBareJid}`;
                 const botNick = options?.botNick || null;
-                debugLog(`buildContextPayload: senderId=${senderId}, sessionKey=${sessionKey}`);
+                secureLog.debug(`buildContextPayload: senderId=${senderId}, sessionKey=${sessionKey}`);
 
                 // Generate unique message ID using counter + timestamp
                 const uniqueMessageId = `xmpp-${Date.now()}-${++messageCounter}`;
@@ -2960,7 +2961,7 @@ gateway: {
         if (xmpp) {
           try {
             await xmpp.stop();
-            debugLog("XMPP client stopped");
+            secureLog.debug("XMPP client stopped");
           } catch (err) {
             ctx.log?.error("Error stopping XMPP client:", err);
           }
