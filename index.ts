@@ -4,6 +4,7 @@ import { emptyPluginConfigSchema } from "openclaw/plugin-sdk";
 import { MessageStore } from "./src/messageStore.js";
 import { validators } from "./src/security/validation.js";
 import { secureLog } from "./src/security/logging.js";
+import { decryptPasswordFromConfig } from "./src/security/encryption.js";
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB default limit
 const MAX_CONCURRENT_TRANSFERS = 3;
@@ -479,15 +480,23 @@ async function startXmpp(cfg: any, contacts: any, log: any, onMessage: (from: st
      debugLog("XMPP client module loaded");
    }
    
-   const { client, xml } = xmppClientModule;
-   
-     const xmpp = client({
-       service: cfg?.service,
-       domain: cfg?.domain,
-       username: cfg?.jid?.split("@")[0],
-       password: cfg?.password,
-        resource: getDefaultResource()
-      });
+    const { client, xml } = xmppClientModule;
+    
+    let password: string;
+    try {
+      password = decryptPasswordFromConfig(cfg || {});
+    } catch (err) {
+      debugLog('Failed to decrypt XMPP password: ' + err);
+      throw new Error('Failed to decrypt XMPP password');
+    }
+    
+      const xmpp = client({
+        service: cfg?.service,
+        domain: cfg?.domain,
+        username: cfg?.jid?.split("@")[0],
+        password: password,
+         resource: getDefaultResource()
+       });
 
    // Helper to resolve room JID - add conference domain if missing
     const resolveRoomJid = (room: string): string => {

@@ -5,10 +5,116 @@ All notable changes to the OpenClaw XMPP plugin will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.6] - 2026-02-07
+
+### Security
+- **Password Encryption at Rest**: Implemented AES-256-GCM encryption for XMPP account passwords in configuration files to protect credentials at rest.
+
+#### New Files
+- `src/security/encryption.ts` - Password encryption utilities with AES-256-GCM authenticated encryption
+
+#### New Class: `PasswordEncryption`
+- `constructor(key: string)` - Creates encryptor with PBKDF2-SHA512 key derivation (100,000 iterations)
+- `encrypt(plaintext: string)` - Encrypts plaintext, returns `{ success: boolean, encrypted?: string, error?: string }`
+- `decrypt(encryptedData: string)` - Decrypts ciphertext, returns `{ success: boolean, decrypted?: string, error?: string }`
+
+#### New Functions
+- `generateEncryptionKey()` - Generates random 32-byte base64 encryption key
+- `createEncryptor(key: string)` - Factory function to create PasswordEncryption instance
+- `getOrCreateEncryptionKey(config)` - Returns existing encryptionKey from config or generates new one
+- `encryptPasswordWithKey(password, key)` - Encrypts password with given key, returns `ENC:hexdata` format
+- `decryptPasswordWithKey(encryptedPassword, key)` - Decrypts password with given key, handles `ENC:` prefix
+- `decryptPasswordFromConfig(config)` - Decrypts password from XMPP account config using config's encryptionKey
+- `encryptPasswordInConfig(config, password)` - Encrypts password and returns updated config object with encryptionKey and encrypted password
+- `isEncryptedPassword(value)` - Checks if value starts with `ENC:` prefix
+- `updateConfigWithEncryptedPassword(configPath, password)` - Reads config, encrypts password, writes back to file
+
+#### Algorithm Details
+- **Encryption**: AES-256-GCM authenticated encryption
+- **Key Derivation**: PBKDF2-SHA512 with 100,000 iterations and salt `'xmpp-plugin-salt-v1'`
+- **IV**: 16 bytes random per encryption
+- **Auth Tag**: 16 bytes GCM authentication tag
+- **Output Format**: `ENC:hex(iv + authTag + ciphertext)` where all components are hex-encoded
+
+#### Config Changes
+- New field `encryptionKey`: Base64-encoded 32-byte encryption key (auto-generated if not present)
+- Password field now supports:
+  - Plaintext password (backward compatible)
+  - Encrypted password with `ENC:` prefix (new format)
+- Config path: `~/.openclaw/openclaw.json` (cross-platform, respects USERPROFILE on Windows)
+
+#### CLI Command
+- `openclaw xmpp encrypt-password` - Interactive command to encrypt password in config file
+  - Prompts for plaintext password (hidden input)
+  - Reads config from `~/.openclaw/openclaw.json`
+  - Generates encryptionKey if not present
+  - Encrypts password with PBKDF2-derived key
+  - Updates config with encryptionKey and encrypted password
+  - Example usage:
+    ```
+    $ openclaw xmpp encrypt-password
+    Enter plaintext password (hidden): ********
+    Password encrypted successfully!
+    Config file: C:\Users\username\.openclaw\openclaw.json
+    Updated fields: encryptionKey, password (ENC:...)
+    ```
+
+#### Updated Files
+- `index.ts` - Added import and decryption at XMPP client initialization
+  - Decrypts password before passing to XMPP client with try/catch error handling
+  - Logs decryption failures to debug log
+- `src/sftp.ts` - Updated `loadXmppConfig()` to decrypt password for SFTP connections
+  - Added import from `./security/encryption.js`
+  - Decrypts password with try/catch, falls back to plaintext for backward compatibility
+- `src/ftp.ts` - Updated `loadXmppConfig()` to decrypt password for FTP connections
+  - Added import from `./security/encryption.js`
+  - Decrypts password with try/catch, falls back to plaintext for backward compatibility
+- `src/vcard-cli.ts` - Updated `loadXmppConfig()` to decrypt password for vCard operations
+  - Added import from `./security/encryption.js`
+  - Decrypts password with try/catch, falls back to plaintext for backward compatibility
+- `src/commands.ts` - Added `encrypt-password` subcommand under `xmpp`
+  - Uses `encryptPasswordInConfig()` to encrypt and update config
+  - Reads/writes config from `~/.openclaw/openclaw.json`
+
+#### Backward Compatibility
+- Plaintext passwords in config continue to work unchanged
+- Encrypted passwords automatically detected by `ENC:` prefix
+- Decryption failures fall back to returning plaintext value
+- Encryption key auto-generated if not present in config
+- No migration required for existing plaintext configs
+
+#### Config Example
+```json
+{
+  "channels": {
+    "xmpp": {
+      "accounts": {
+        "default": {
+          "enabled": true,
+          "service": "xmpp://example.com:5222",
+          "domain": "example.com",
+          "jid": "bot@example.com",
+          "password": "ENC:a1b2c3d4e5f6...",
+          "encryptionKey": "Xk9sLm2v8Yq4...",
+          "adminJid": "admin@example.com"
+        }
+      }
+    }
+  }
+}
+```
+
 ## [1.6.5] - 2026-02-07
 
 ### Security
-- **Sanitize Debug Logs**: Created `src/security/logging.ts` with `secureLog` utility that automatically redacts sensitive data (passwords, credentials, API keys) from logs. Added sanitization to `debugLog()` function in `index.ts` to prevent sensitive information exposure.
+- **Debug Logs Sanitized**: Created `src/security/logging.ts` with:
+  - `secureLog` object with `info()`, `debug()`, `error()`, `warn()` methods
+  - Automatic sanitization of passwords, credentials, API keys
+  - Metadata sanitization for objects
+  - DEBUG environment variable support
+  Updated `index.ts`:
+  - `debugLog()` function now sanitizes messages before writing to log file
+  - Sensitive patterns automatically redacted as `[REDACTED]`
 
 ## [1.6.4] - 2026-02-07
 

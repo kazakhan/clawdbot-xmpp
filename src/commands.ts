@@ -369,6 +369,60 @@ Note: Commands connect directly to XMPP server.`);
       console.log('Use: openclaw xmpp sftp help');
     });
 
+  // Subcommand: encrypt-password
+  xmpp
+    .command("encrypt-password")
+    .description("Encrypt password in config file")
+    .action(async () => {
+      const { encryptPasswordInConfig } = await import('./security/encryption.js');
+      const fs = await import('fs');
+      const path = await import('path');
+
+      const configPath = path.join(process.env.USERPROFILE || process.env.HOME || '', '.openclaw', 'openclaw.json');
+      let config: any = {};
+
+      if (fs.existsSync(configPath)) {
+        try {
+          config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+        } catch (e) {
+          console.error('Failed to read config file:', e);
+          return;
+        }
+      } else {
+        console.error('Config file not found:', configPath);
+        return;
+      }
+
+      if (!config.channels?.xmpp?.accounts?.default) {
+        console.error('XMPP account config not found at channels.xmpp.accounts.default');
+        return;
+      }
+
+      console.log('Enter plaintext password (hidden): ');
+      
+      const readline = await import('readline');
+      const rl = readline.createInterface({
+        input: process.stdin,
+        output: process.stdout
+      });
+
+      rl.question('', (password: string) => {
+        rl.close();
+        if (!password) {
+          console.error('Password cannot be empty');
+          return;
+        }
+
+        const updatedXmppConfig = encryptPasswordInConfig(config.channels.xmpp.accounts.default, password);
+        config.channels.xmpp.accounts.default = updatedXmppConfig;
+
+        fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
+        console.log('Password encrypted successfully!');
+        console.log(`Config file: ${configPath}`);
+        console.log('Updated fields: encryptionKey, password (ENC:...)');
+      });
+    });
+
 }
 
 // Legacy function for backward compatibility - now delegates to registerXmppCli

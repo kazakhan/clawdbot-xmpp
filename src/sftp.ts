@@ -1,6 +1,7 @@
 import { Client } from "ssh2";
 import path from "path";
 import fs from "fs";
+import { decryptPasswordFromConfig } from './security/encryption.js';
 
 interface XmppConfig {
   domain: string;
@@ -24,10 +25,17 @@ function loadXmppConfig(): XmppConfig {
     const xmppAccount = config.channels?.xmpp?.accounts?.default;
     
     if (xmppAccount) {
+      let password: string;
+      try {
+        password = decryptPasswordFromConfig(xmppAccount);
+      } catch (err) {
+        password = xmppAccount.password || '';
+      }
+      
       return {
         domain: xmppAccount.domain,
         jid: xmppAccount.jid,
-        password: xmppAccount.password,
+        password: password,
         sftpPort: xmppAccount.sftpPort
       };
     }

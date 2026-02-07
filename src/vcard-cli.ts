@@ -1,5 +1,6 @@
 import { xml } from "@xmpp/client";
 import path from "path";
+import { decryptPasswordFromConfig } from './security/encryption.js';
 
 interface XmppConfig {
   service: string;
@@ -25,11 +26,18 @@ function loadXmppConfig(): XmppConfig {
     const xmppAccount = config.channels?.xmpp?.accounts?.default;
     
     if (xmppAccount) {
+      let password: string;
+      try {
+        password = decryptPasswordFromConfig(xmppAccount);
+      } catch (err) {
+        password = xmppAccount.password || '';
+      }
+      
       return {
         service: xmppAccount.service || `xmpp://${xmppAccount.domain}:5222`,
         domain: xmppAccount.domain,
         jid: xmppAccount.jid,
-        password: xmppAccount.password
+        password: password
       };
     }
   } catch (e) {
