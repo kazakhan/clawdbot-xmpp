@@ -152,6 +152,42 @@ openclaw xmpp vcard set url <url>  # Set URL
 openclaw xmpp vcard set desc <desc>  # Set Description
 ```
 
+## In-Chat Slash Commands
+
+Use these commands directly in XMPP chat (direct message or groupchat) to control the bot.
+
+### Available to Everyone
+```bash
+/whoami                          # Show your info (room/nick in groupchat)
+/help                            # Show available commands
+/whiteboard draw <prompt>        # Request AI image generation
+/whiteboard send <url>           # Share an image URL
+```
+
+### Admin Only (Direct Chat)
+```bash
+/list                            # List all contacts
+/add <jid> [name]               # Add a contact
+/remove <jid>                    # Remove a contact
+/admins                          # List admin users
+/join <room> [nick]              # Join a MUC room
+/rooms                           # List joined rooms
+/leave <room>                   # Leave a MUC room
+/vcard                           # Manage vCard profile
+/vcard get                       # Show current vCard
+/vcard get <jid>                 # Show any user's vCard
+/vcard set fn <name>             # Set Full Name
+/vcard set nickname <name>       # Set Nickname
+/vcard set url <url>             # Set URL
+/vcard set desc <desc>           # Set Description
+/vcard set avatarUrl <url>       # Set Avatar URL
+```
+
+### Notes
+- Admin commands require your JID to be in the `adminJid` config
+- Most admin commands only work in direct chat (not groupchat)
+- The `/help` command forwards to the AI agent in direct chat
+
 ## SFTP File Management
 
 Uses SSH/SFTP with your XMPP account credentials. Files stored in your home directory.
