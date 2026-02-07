@@ -2,11 +2,6 @@ import fs from "fs";
 import path from "path";
 import { xml } from "@xmpp/client";
 import { UploadSlot } from "./types.js";
-import { validators } from "./security/validation.js";
-
-// File transfer size limits
-const MAX_FILE_SIZE_MB = 10;
-const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024;
 
 export interface FileTransferOptions {
   xmpp: any;
@@ -16,23 +11,10 @@ export interface FileTransferOptions {
 
 export function createFileTransferHandlers(options: FileTransferOptions) {
   const { xmpp, domain, dataDir } = options;
-
+  
   const requestUploadSlot = async (filename: string, size: number, contentType?: string): Promise<UploadSlot> => {
     console.log(`Requesting upload slot for ${filename} (${size} bytes)`);
-
-    // Validate filename
-    const filenameValidation = validators.sanitizeFilename(filename);
-    if (!filenameValidation.valid) {
-      throw new Error(`Invalid filename: ${filenameValidation.error}`);
-    }
-    const validFilename = filenameValidation.sanitized || filename;
-
-    // Validate file size
-    const sizeValidation = validators.isValidFileSize(size, MAX_FILE_SIZE_BYTES);
-    if (!sizeValidation.valid) {
-      throw new Error(sizeValidation.error);
-    }
-
+    
     const iqId = Math.random().toString(36).substring(2);
     const requestStanza = xml("iq", { type: "get", to: domain, id: iqId },
       xml("request", { xmlns: "urn:xmpp:http:upload:0", filename, size: size.toString() })
@@ -113,13 +95,7 @@ export function createFileTransferHandlers(options: FileTransferOptions) {
       const stats = await fs.promises.stat(filePath);
       const filename = path.basename(filePath);
       const size = stats.size;
-
-      // Validate file size before requesting slot
-      const sizeValidation = validators.isValidFileSize(size, MAX_FILE_SIZE_BYTES);
-      if (!sizeValidation.valid) {
-        throw new Error(sizeValidation.error);
-      }
-
+      
       const slot = await requestUploadSlot(filename, size);
       
       await uploadFileViaHTTP(filePath, slot.putUrl, slot.headers);

@@ -2,20 +2,12 @@ import fs from "fs";
 import path from "path";
 import { emptyPluginConfigSchema } from "openclaw/plugin-sdk";
 import { MessageStore } from "./src/messageStore.js";
-import { validators } from "./src/security/validation.js";
-import { secureLog } from "./src/security/logging.js";
-import { AdvancedRateLimiter, createRateLimiter } from "./src/security/rateLimiter.js";
-import { decryptPasswordFromConfig } from "./src/security/encryption.js";
-import { SecureFileTransfer, createSecureFileTransfer } from "./src/security/fileTransfer.js";
-import { AuditLogger, AuditEventType, logAuditEvent, createAuditLogger } from "./src/security/audit.js";
 
-// Simple file logger for debugging with sanitization
+// Simple file logger for debugging
 const debugLog = (msg: string) => {
   const logFile = path.join(__dirname, 'cli-debug.log');
   const timestamp = new Date().toISOString();
-  const validation = validators.sanitizeForXmpp(msg);
-  const sanitizedMsg = validation.valid && validation.sanitized ? validation.sanitized : msg;
-  const line = `[${timestamp}] ${sanitizedMsg}\n`;
+  const line = `[${timestamp}] ${msg}\n`;
   try {
     fs.appendFileSync(logFile, line);
   } catch (err) {
@@ -23,7 +15,7 @@ const debugLog = (msg: string) => {
   }
 };
 
-secureLog.info(`XMPP plugin loading at ${new Date().toISOString()}`);
+debugLog(`XMPP plugin loading at ${new Date().toISOString()}`);
 
 let pluginRegistered = false;
 
@@ -55,54 +47,23 @@ const rateLimitMap = new Map<string, RateLimitEntry>();
 const rateLimitMaxRequests = 10; // Max commands per window
 const rateLimitWindowMs = 60000; // 1 minute window
 
-// Pending subscription requests (require admin approval)
-interface PendingSubscription {
-  jid: string;
-  timestamp: number;
-  status: 'pending' | 'approved' | 'denied';
-}
-export const pendingSubscriptions = new Map<string, PendingSubscription>();
-
-// File transfer size limits
-const MAX_FILE_SIZE_MB = 10;
-const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024;
-const MAX_CONCURRENT_DOWNLOADS = 3;
-const activeDownloads = new Map<string, { size: number; startTime: number }>();
-
-// Advanced rate limiter
-export const rateLimiter = createRateLimiter({
-  windowMs: 60000,        // 1 minute window
-  maxRequests: 10,         // Max commands per window
-  blockDurationMs: 300000, // 5 minute block
-  maxViolationsBeforeBlock: 3
-});
-
-function checkRateLimit(jid: string): { allowed: boolean; reason?: string; remaining?: number } {
-  const result = rateLimiter.check(jid);
-  if (!result.allowed && result.reason) {
-    secureLog.warn(`Rate limit exceeded for ${jid}: ${result.reason}`);
+function checkRateLimit(jid: string): boolean {
+  const now = Date.now();
+  const entry = rateLimitMap.get(jid);
+  
+  if (!entry || now - entry.windowStart > rateLimitWindowMs) {
+    // Start new window
+    rateLimitMap.set(jid, { count: 1, windowStart: now });
+    return true;
   }
-  return {
-    allowed: result.allowed,
-    reason: result.reason,
-    remaining: result.remaining
-  };
-}
-
-function checkConcurrentDownloadLimit(remoteJid: string): { allowed: boolean; reason?: string } {
-  const userDownloads = Array.from(activeDownloads.entries())
-    .filter(([_, data]) => {
-      const elapsed = Date.now() - data.startTime;
-      return elapsed < 5 * 60 * 1000;
-    }).length;
-
-  if (userDownloads >= MAX_CONCURRENT_DOWNLOADS) {
-    return {
-      allowed: false,
-      reason: `Too many concurrent downloads (${MAX_CONCURRENT_DOWNLOADS} max). Please wait.`
-    };
+  
+  if (entry.count >= rateLimitMaxRequests) {
+    console.log(`[RATE LIMIT] Rejected command from ${jid} (${entry.count} requests in window)`);
+    return false;
   }
-  return { allowed: true };
+  
+  entry.count++;
+  return true;
 }
 
 
@@ -404,103 +365,65 @@ async function startXmpp(cfg: any, contacts: any, log: any, onMessage: (from: st
     };
     
     // File download helper for inbound attachments (available in stanza handler)
-    const downloadFile = async (url: string, tempDir: string, remoteJid?: string): Promise<string> => {
-      secureLog.debug(`Downloading file from ${url}`);
-
-      // Validate URL
-      const urlValidation = validators.isValidUrl(url);
-      if (!urlValidation.valid) {
-        throw new Error(`Invalid URL: ${urlValidation.error}`);
-      }
-
-      // Check concurrent download limit
-      if (remoteJid) {
-        const limitCheck = checkConcurrentDownloadLimit(remoteJid);
-        if (!limitCheck.allowed) {
-          throw new Error(limitCheck.reason);
-        }
-      }
-
+    const downloadFile = async (url: string, tempDir: string): Promise<string> => {
+      debugLog(`Downloading file from ${url}`);
+      
       // Create temp directory if needed
       if (!fs.existsSync(tempDir)) {
         fs.mkdirSync(tempDir, { recursive: true });
       }
-
-      // Generate filename and validate
-      const urlObj = new URL(url);
-      const pathname = urlObj.pathname;
-      let filename = path.basename(pathname) || `file_${Date.now()}.bin`;
-
-      const filenameValidation = validators.sanitizeFilename(filename);
-      if (!filenameValidation.valid) {
-        throw new Error(`Invalid filename: ${filenameValidation.error}`);
+      
+       // Generate filename from URL with path traversal protection
+       const urlObj = new URL(url);
+       const pathname = urlObj.pathname;
+       let filename = path.basename(pathname) || `file_${Date.now()}.bin`;
+       
+       // Validate filename - only allow safe characters, no path separators
+       const safeFilename = filename.replace(/[^a-zA-Z0-9._-]/g, '_');
+       if (safeFilename !== filename) {
+        console.log(`[SECURITY] Sanitized filename: "${filename}" -> "${safeFilename}"`);
+        filename = safeFilename;
       }
-      filename = filenameValidation.sanitized || filename;
-
+      
+      // Ensure filename doesn't escape tempDir using path normalization
+      const normalizedPath = path.normalize(filename);
+      if (normalizedPath.startsWith('..') || path.isAbsolute(normalizedPath)) {
+        filename = `file_${Date.now()}_${safeFilename}`;
+        console.log(`[SECURITY] Rejected unsafe filename, using: ${filename}`);
+      }
+      
       const filePath = path.join(tempDir, filename);
-
-      // Validate path doesn't escape tempDir
-      const pathValidation = validators.isSafePath(filePath, tempDir);
-      if (!pathValidation.valid) {
-        throw new Error(`Invalid path: ${pathValidation.error}`);
-      }
      
      try {
        const response = await fetch(url);
        if (!response.ok) {
          throw new Error(`Download failed: ${response.status} ${response.statusText}`);
        }
-
-       // Check content-length header before downloading
-       const contentLength = response.headers.get('content-length');
-        if (contentLength) {
-          const size = parseInt(contentLength, 10);
-          const validation = validators.isValidFileSize(size);
-          if (!validation.valid) {
-            throw new Error(validation.error || 'Invalid file size');
-          }
-        }
-
-        const buffer = await response.arrayBuffer();
-        const bufferSize = buffer.byteLength;
-
-        // Validate actual downloaded size
-        const sizeValidation = validators.isValidFileSize(bufferSize);
-        if (!sizeValidation.valid) {
-          throw new Error(sizeValidation.error || 'Invalid file size');
-        }
-
-       // Track this download
-       const downloadId = `${remoteJid || 'unknown'}_${Date.now()}`;
-       activeDownloads.set(downloadId, { size: bufferSize, startTime: Date.now() });
-
+       
+       const buffer = await response.arrayBuffer();
        await fs.promises.writeFile(filePath, Buffer.from(buffer));
-
-       console.log(`File downloaded to ${filePath} (${bufferSize} bytes)`);
-
-       // Cleanup download tracking
-       activeDownloads.delete(downloadId);
-
+       
+       console.log(`File downloaded to ${filePath} (${buffer.byteLength} bytes)`);
        return filePath;
      } catch (err) {
        console.error("File download failed:", err);
        throw err;
      }
-     };
-       
-     const processInboundFiles = async (urls: string[], remoteJid?: string): Promise<string[]> => {
-      if (urls.length === 0) return [];
-      
-      // Create temp directory for downloads
-      const tempDir = path.join(cfg.dataDir, 'downloads');
-      const localPaths: string[] = [];
-      
-      for (const url of urls) {
-        try {
-          const localPath = await downloadFile(url, tempDir, remoteJid);
-          localPaths.push(localPath);
-        } catch (err) {
-          console.error(`Failed to download ${url}:`, err);
+   };
+
+   const processInboundFiles = async (urls: string[]): Promise<string[]> => {
+     if (urls.length === 0) return [];
+     
+     // Create temp directory for downloads
+     const tempDir = path.join(cfg.dataDir, 'downloads');
+     const localPaths: string[] = [];
+     
+     for (const url of urls) {
+       try {
+         const localPath = await downloadFile(url, tempDir);
+         localPaths.push(localPath);
+       } catch (err) {
+         console.error(`Failed to download ${url}:`, err);
          // Continue with other files
        }
      }
@@ -508,45 +431,25 @@ async function startXmpp(cfg: any, contacts: any, log: any, onMessage: (from: st
       return localPaths;
     };
     
-    secureLog.debug(`Starting XMPP connection to ${cfg?.service}`);
-    secureLog.debug(`XMPP config: jid=${cfg?.jid}, domain=${cfg?.domain}`);
+    debugLog(`Starting XMPP connection to ${cfg?.service}`);
+    debugLog(`XMPP config: jid=${cfg?.jid}, domain=${cfg?.domain}`);
    
    // Lazy load @xmpp/client module
    if (!xmppClientModule) {
-     secureLog.debug("Loading @xmpp/client module...");
+     debugLog("Loading @xmpp/client module...");
      xmppClientModule = await import("@xmpp/client");
-     secureLog.debug("XMPP client module loaded");
+     debugLog("XMPP client module loaded");
    }
    
-    const { client, xml } = xmppClientModule;
-
-    // Decrypt password if encrypted
-    let password: string;
-    try {
-      password = decryptPasswordFromConfig(cfg || {});
-    } catch (err) {
-      secureLog.error('Failed to decrypt XMPP password', err);
-      throw new Error('Failed to decrypt XMPP password');
-    }
-
-    // Initialize secure file transfer
-    const secureFileTransfer = createSecureFileTransfer({
-      maxFileSizeMB: 10,
-      maxUploadSizeMB: 10,
-      maxDownloadSizeMB: 10,
-      quarantineDir: path.join(cfg?.dataDir || '.', 'quarantine'),
-      tempDir: path.join(cfg?.dataDir || '.', 'temp'),
-      userQuotaMB: 100,
-      enableVirusScan: false
-    });
-
-    const xmpp = client({
-      service: cfg?.service,
-      domain: cfg?.domain,
-      username: cfg?.jid?.split("@")[0],
-      password: password,
-      resource: getDefaultResource()
-    });
+   const { client, xml } = xmppClientModule;
+   
+     const xmpp = client({
+       service: cfg?.service,
+       domain: cfg?.domain,
+       username: cfg?.jid?.split("@")[0],
+       password: cfg?.password,
+        resource: getDefaultResource()
+      });
 
    // Helper to resolve room JID - add conference domain if missing
     const resolveRoomJid = (room: string): string => {
@@ -586,7 +489,7 @@ async function startXmpp(cfg: any, contacts: any, log: any, onMessage: (from: st
       let error: any = null;
       
       const handler = (stanza: any) => {
-        secureLog.debug(`vCard query received stanza: id=${stanza.attrs.id}, type=${stanza.attrs.type}, from=${stanza.attrs.from}`);
+        debugLog(`vCard query received stanza: id=${stanza.attrs.id}, type=${stanza.attrs.type}, from=${stanza.attrs.from}`);
         if (stanza.attrs.id === id && stanza.attrs.type === 'result') {
           response = stanza;
         }
@@ -600,19 +503,19 @@ async function startXmpp(cfg: any, contacts: any, log: any, onMessage: (from: st
         if (targetJid) {
           iqAttrs.to = targetJid;
         }
-        secureLog.debug(`Querying vCard from ${targetJid || 'self'} with id ${id}`);
+        debugLog(`Querying vCard from ${targetJid || 'self'} with id ${id}`);
         await xmpp.send(xml("iq", iqAttrs, xml("vCard", { xmlns: "vcard-temp" })));
         // Wait for response
         await new Promise((resolve) => setTimeout(resolve, 1000));
       } catch (err) {
         error = err;
-        secureLog.debug(`vCard query send error: ${err}`);
+        debugLog(`vCard query send error: ${err}`);
       } finally {
         xmpp.off('stanza', handler);
       }
       
       if (error) {
-        secureLog.debug(`vCard query error: ${error}`);
+        debugLog(`vCard query error: ${error}`);
         return null;
       }
       
@@ -620,11 +523,11 @@ async function startXmpp(cfg: any, contacts: any, log: any, onMessage: (from: st
         const vcardEl = response.getChild('vCard');
         if (vcardEl) {
           const data = parseVCardXml(vcardEl);
-          secureLog.debug(`vCard parsed: fn=${data.fn}, nickname=${data.nickname}`);
+          debugLog(`vCard parsed: fn=${data.fn}, nickname=${data.nickname}`);
           return data;
         }
       }
-      secureLog.debug(`vCard query no response for ${targetJid || 'self'}`);
+      debugLog(`vCard query no response for ${targetJid || 'self'}`);
       return null;
     };
     
@@ -653,26 +556,19 @@ async function startXmpp(cfg: any, contacts: any, log: any, onMessage: (from: st
       }
     };
 
-   xmpp.on("error", (err: any) => {
-     log.error("XMPP error", err);
-     console.error("XMPP error details:", err);
-     logAuditEvent(AuditEventType.SUSPICIOUS_ACTIVITY, cfg?.jid || 'unknown', 'xmpp_error', 'failure', {
-       metadata: { error: String(err).substring(0, 500) }
-     });
-   });
+  xmpp.on("error", (err: any) => {
+    log.error("XMPP error", err);
+    console.error("XMPP error details:", err);
+  });
 
-   xmpp.on("offline", () => {
-     secureLog.debug("XMPP went offline");
-     isRunning = false;
-     logAuditEvent(AuditEventType.XMPP_DISCONNECTED, cfg?.jid || 'unknown', 'xmpp_offline', 'success');
-   });
+  xmpp.on("offline", () => {
+    debugLog("XMPP went offline");
+    isRunning = false;
+  });
 
-    xmpp.on("online", async (address: any) => {
-       log.info("XMPP online as", address.toString());
-       secureLog.debug("XMPP connected successfully");
-       logAuditEvent(AuditEventType.XMPP_CONNECTED, cfg?.jid || 'unknown', 'xmpp_online', 'success', {
-         metadata: { address: address.toString() }
-       });
+   xmpp.on("online", async (address: any) => {
+      log.info("XMPP online as", address.toString());
+      debugLog("XMPP connected successfully");
  
       // Send initial presence to appear online
       try {
@@ -736,7 +632,7 @@ async function startXmpp(cfg: any, contacts: any, log: any, onMessage: (from: st
     }
 
     xmpp.on("stanza", async (stanza: any) => {
-     // secureLog.debug("XMPP stanza received: " + stanza.toString().substring(0, 200));
+     // debugLog("XMPP stanza received: " + stanza.toString().substring(0, 200));
      
      if (stanza.is("presence")) {
       const from = stanza.attrs.from;
@@ -745,140 +641,30 @@ async function startXmpp(cfg: any, contacts: any, log: any, onMessage: (from: st
       const room = parts[0];
       const nick = parts[1] || '';
       
-       // Handle subscription requests (require admin approval)
-       if (type === "subscribe") {
-         const bareFrom = from.split('/')[0];
-         console.log(`📨 Received subscription request from ${bareFrom}`);
-
-         // Check if already a contact (pre-approved)
-         if (contacts.exists(bareFrom)) {
-           try {
-             const subscribed = xml("presence", { to: from, type: "subscribed" });
-             await xmpp.send(subscribed);
-             console.log(`✅ Auto-approved subscription for existing contact ${bareFrom}`);
-
-             const subscribe = xml("presence", { to: from, type: "subscribe" });
-             await xmpp.send(subscribe);
-             console.log(`📤 Sent mutual subscription request to ${bareFrom}`);
-           } catch (err) {
-             console.error(`❌ Failed to handle subscription for contact ${bareFrom}:`, err);
-           }
-           return;
-         }
-
-         // Check if already pending
-         const existingPending = pendingSubscriptions.get(bareFrom);
-         if (existingPending && existingPending.status === 'pending') {
-           console.log(`ℹ️ Subscription request from ${bareFrom} already pending`);
-           return;
-         }
-
-         // Add to pending subscriptions (requires admin approval)
-         pendingSubscriptions.set(bareFrom, {
-           jid: bareFrom,
-           timestamp: Date.now(),
-           status: 'pending'
-         });
-         console.log(`📝 Added ${bareFrom} to pending subscriptions (requires admin approval)`);
-
-         // Notify admins
-         const adminJids = contacts.listAdmins();
-         if (adminJids.length > 0) {
-           const notificationMsg = `🔔 New subscription request from ${bareFrom}\nUse /subscriptions approve ${bareFrom} to approve or /subscriptions deny ${bareFrom} to deny.`;
-           for (const adminJid of adminJids) {
-             try {
-               const notification = xml("message", { to: adminJid, type: "chat" },
-                 xml("body", {}, notificationMsg)
-               );
-               await xmpp.send(notification);
-             } catch (err) {
-               console.error(`Failed to notify admin ${adminJid}:`, err);
-             }
-           }
-           console.log(`📢 Admins notified of pending subscription request`);
-         } else {
-           console.log(`⚠️ No admins configured - subscription request pending but no one to approve`);
-         }
-         return;
-       }
-
-       // Helper to approve pending subscription
-       async function approveSubscription(targetJid: string): Promise<boolean> {
-         const pending = pendingSubscriptions.get(targetJid);
-         if (!pending || pending.status !== 'pending') {
-           console.log(`No pending subscription found for ${targetJid}`);
-           return false;
-         }
-
-         try {
-           const subscribed = xml("presence", { to: targetJid, type: "subscribed" });
-           await xmpp.send(subscribed);
-           console.log(`✅ Approved subscription for ${targetJid}`);
-
-           const subscribe = xml("presence", { to: targetJid, type: "subscribe" });
-           await xmpp.send(subscribe);
-           console.log(`📤 Sent mutual subscription request to ${targetJid}`);
-
-           // Add to contacts
-           contacts.add(targetJid);
-           console.log(`📝 Added ${targetJid} to contacts`);
-
-           pending.status = 'approved';
-           pendingSubscriptions.set(targetJid, pending);
-
-           // Notify requester
-           try {
-             const notifyMsg = xml("message", { to: targetJid, type: "chat" },
-               xml("body", {}, "✅ Your subscription request has been approved!")
-             );
-             await xmpp.send(notifyMsg);
-           } catch (err) {
-             console.error(`Failed to notify ${targetJid} of approval:`, err);
-           }
-
-           return true;
-         } catch (err) {
-           console.error(`Failed to approve subscription for ${targetJid}:`, err);
-           return false;
-         }
-       }
-
-       // Helper to deny pending subscription
-       async function denySubscription(targetJid: string): Promise<boolean> {
-         const pending = pendingSubscriptions.get(targetJid);
-         if (!pending || pending.status !== 'pending') {
-           console.log(`No pending subscription found for ${targetJid}`);
-           return false;
-         }
-
-         try {
-           const unsubscribed = xml("presence", { to: targetJid, type: "unsubscribed" });
-           await xmpp.send(unsubscribed);
-           console.log(`❌ Denied subscription for ${targetJid}`);
-
-           pending.status = 'denied';
-           pendingSubscriptions.set(targetJid, pending);
-
-           // Notify requester
-           try {
-             const notifyMsg = xml("message", { to: targetJid, type: "chat" },
-               xml("body", {}, "❌ Your subscription request has been denied.")
-             );
-             await xmpp.send(notifyMsg);
-           } catch (err) {
-             console.error(`Failed to notify ${targetJid} of denial:`, err);
-           }
-
-           return true;
-         } catch (err) {
-           console.error(`Failed to deny subscription for ${targetJid}:`, err);
-           return false;
-         }
-       }
-
-       // Export helper functions for commands module
-       (global as any).approveSubscription = approveSubscription;
-       (global as any).denySubscription = denySubscription;
+       // Handle subscription requests (not MUC)
+      if (type === "subscribe") {
+        console.log(`📨 Received subscription request from ${from}`);
+        // Add to contacts if not already
+        const bareFrom = from.split('/')[0];
+        if (!contacts.exists(bareFrom)) {
+          contacts.add(bareFrom);
+          console.log(`📝 Added ${bareFrom} to contacts`);
+        }
+        // Auto-approve subscription
+        try {
+          const subscribed = xml("presence", { to: from, type: "subscribed" });
+          await xmpp.send(subscribed);
+          console.log(`✅ Auto-approved subscription for ${from}`);
+          
+          // Also request subscription from them (mutual)
+          const subscribe = xml("presence", { to: from, type: "subscribe" });
+          await xmpp.send(subscribe);
+          console.log(`📤 Sent subscription request to ${from}`);
+        } catch (err) {
+          console.error(`❌ Failed to handle subscription request from ${from}:`, err);
+        }
+        return;
+      }
       
        // Handle other subscription types
       if (type === "subscribed" || type === "unsubscribe" || type === "unsubscribed") {
@@ -945,37 +731,21 @@ async function startXmpp(cfg: any, contacts: any, log: any, onMessage: (from: st
       const to = stanza.attrs.to;
       const type = stanza.attrs.type;
       const id = stanza.attrs.id;
-      secureLog.debug(`IQ stanza: type=${type}, from=${from}, id=${id}`);
+      debugLog(`IQ stanza: type=${type}, from=${from}, id=${id}`);
       
       // Handle SI File Transfer requests (XEP-0096)
       if (type === "set") {
         const si = stanza.getChild("si", "http://jabber.org/protocol/si");
         if (si) {
-          secureLog.debug(`SI file transfer offer from ${from}`);
+          debugLog(`SI file transfer offer from ${from}`);
           // Check for file transfer profile
           const file = si.getChild("file", "http://jabber.org/protocol/si/profile/file-transfer");
-           if (file) {
-             const filename = file.attrs.name || "unknown";
-             const size = file.attrs.size ? parseInt(file.attrs.size) : 0;
-             secureLog.debug(`File offer: ${filename} (${size} bytes)`);
-
-              // Validate file size
-              if (size > 0) {
-                const sizeValidation = validators.isValidFileSize(size);
-                if (!sizeValidation.valid) {
-                  console.log(`[SECURITY] Rejected file transfer: ${sizeValidation.error}`);
-                  const errorIq = xml("iq", { to: from, type: "error", id },
-                    xml("error", { type: "cancel" },
-                      xml("file-size-too-big", { xmlns: "urn:xmpp:filesize:0" }),
-                      xml("text", { xmlns: "urn:ietf:params:xml:ns:xmpp-stanzas" }, sizeValidation.error || 'File too large')
-                    )
-                  );
-                  await xmpp.send(errorIq);
-                  return;
-                }
-             }
-
-             // Check for supported stream methods
+          if (file) {
+            const filename = file.attrs.name || "unknown";
+            const size = file.attrs.size ? parseInt(file.attrs.size) : 0;
+            debugLog(`File offer: ${filename} (${size} bytes)`);
+            
+            // Check for supported stream methods
             const feature = si.getChild("feature", "http://jabber.org/protocol/feature-neg");
             let supportedMethod = null;
             if (feature) {
@@ -1235,9 +1005,9 @@ async function startXmpp(cfg: any, contacts: any, log: any, onMessage: (from: st
           return;
         }
       }
-
+      
       // Check for room configuration forms (MUC owner namespace)
-       const mucOwnerX = stanza.getChild('x', 'http://jabber.org/protocol/muc#owner');
+      const mucOwnerX = stanza.getChild('x', 'http://jabber.org/protocol/muc#owner');
       if (mucOwnerX) {
         const xDataForm = mucOwnerX.getChild('x', 'jabber:x:data');
         if (xDataForm && xDataForm.attrs.type === 'form') {
@@ -1275,12 +1045,8 @@ async function startXmpp(cfg: any, contacts: any, log: any, onMessage: (from: st
           }
           return;
         }
-       }
-       
-       // Strip resource from sender JID early for file downloads
-       const fromBareJid = from.split("/")[0];
-       
-        // Check for file attachments (XEP-0066: Out of Band Data)
+      }
+       // Check for file attachments (XEP-0066: Out of Band Data)
        const oobElement = stanza.getChild('x', 'jabber:x:oob');
        let mediaUrls: string[] = [];
        let mediaPaths: string[] = [];
@@ -1288,35 +1054,36 @@ async function startXmpp(cfg: any, contacts: any, log: any, onMessage: (from: st
          const url = oobElement.getChildText('url');
          if (url) {
            mediaUrls.push(url);
-            console.log(`Detected file attachment: ${url}`);
-            
-            // Download file locally for agent processing
-            try {
-              const localPaths = await processInboundFiles([url], fromBareJid);
-              mediaPaths = localPaths;
-              console.log(`Downloaded file to local paths: ${localPaths.join(', ')}`);
-            } catch (err) {
-              console.error("Failed to download file, will pass URL only:", err);
-            }
-          }
+           console.log(`Detected file attachment: ${url}`);
+           
+           // Download file locally for agent processing
+           try {
+             const localPaths = await processInboundFiles([url]);
+             mediaPaths = localPaths;
+             console.log(`Downloaded file to local paths: ${localPaths.join(', ')}`);
+           } catch (err) {
+             console.error("Failed to download file, will pass URL only:", err);
+           }
+         }
        }
        
        // Only process messages with body
         const body = stanza.getChildText("body");
         if (!body && mediaUrls.length === 0) return;
-         
-         secureLog.debug(`XMPP message: type=${messageType}, from=${from}, body=${body?.substring(0, 50)}`);
-          
-         // fromBareJid already defined above for file downloads
-         
-          // Check for slash commands (in both chat and groupchat)
+       
+        debugLog(`XMPP message: type=${messageType}, from=${from}, body=${body?.substring(0, 50)}`);
+        
+        // Strip resource from sender JID for contact check
+        const fromBareJid = from.split("/")[0];
+        
+         // Check for slash commands (in both chat and groupchat)
         // Behavior:
         // - Groupchat: Only plugin commands are processed locally, others ignored (not forwarded to agents)
         // - Chat: Plugin commands handled locally, /help also forwarded to agent
         // - Chat non-plugin commands: Forwarded to agent only if sender is contact
         // Plugin commands: list, add, remove, admins, whoami, join, rooms, leave, invite, whiteboard, help
         if (body && body.startsWith('/')) {
-           secureLog.debug(`[SLASH] Command: ${body.substring(0, 100)}`);
+           debugLog(`[SLASH] Command: ${body.substring(0, 100)}`);
           
           // Extract room and nick for groupchat
          const roomJid = messageType === "groupchat" ? from.split("/")[0] : null;
@@ -1360,12 +1127,12 @@ async function startXmpp(cfg: any, contacts: any, log: any, onMessage: (from: st
           const pluginCommands = new Set(['list', 'add', 'remove', 'admins', 'whoami', 'join', 'rooms', 'leave', 'invite', 'whiteboard', 'vcard', 'help']);
           const isPluginCommand = pluginCommands.has(command);
           
-          secureLog.debug(`[SLASH] type=${messageType}, cmd=/${command}, isPlugin=${isPluginCommand}`);
+          debugLog(`[SLASH] type=${messageType}, cmd=/${command}, isPlugin=${isPluginCommand}`);
          
           // Groupchat handling: only process plugin commands, ignore others
           if (messageType === "groupchat") {
             if (!isPluginCommand) {
-              secureLog.debug(`Ignoring non-plugin slash command in groupchat: /${command}`);
+              debugLog(`Ignoring non-plugin slash command in groupchat: /${command}`);
               return; // DO NOT forward to agents
             }
           }
@@ -1377,10 +1144,10 @@ async function startXmpp(cfg: any, contacts: any, log: any, onMessage: (from: st
             } else {
               // Non-plugin command in chat - only forward if sender is contact
               if (contacts.exists(fromBareJid)) {
-                secureLog.debug(`Forwarding non-plugin command /${command} to agent`);
+                debugLog(`Forwarding non-plugin command /${command} to agent`);
                 onMessage(fromBareJid, body, { type: "chat", mediaUrls, mediaPaths });
               } else {
-                secureLog.debug(`Ignoring non-plugin slash command from non-contact: /${command}`);
+                debugLog(`Ignoring non-plugin slash command from non-contact: /${command}`);
                 await sendReply(`❌ Unknown command: /${command}. You must be a contact to use bot commands.`);
               }
               return; // Stop further processing
@@ -1399,26 +1166,25 @@ async function startXmpp(cfg: any, contacts: any, log: any, onMessage: (from: st
              }
            };
            
-            switch (command) {
+           switch (command) {
              case 'help':
-                    await sendReply(`Available commands (groupchat: only whoami, whiteboard, invites, help):
-    /list - Show contacts (admin only - direct chat)
-    /add <jid> [name] - Add contact (admin only - direct chat)
-    /remove <jid> - Remove contact (admin only - direct chat)
-    /admins - List admins (admin only - direct chat)
-    /whoami - Show your info (room/nick in groupchat)
-    /join <room> [nick] - Join MUC room (admin only - direct chat)
-    /rooms - List joined rooms (admin only - direct chat)
-    /leave <room> - Leave MUC room (admin only - direct chat)
-    /invite <jid> <room> - Invite a contact to a room (admin only - direct chat)
-    /whiteboard - Whiteboard drawing and image sharing
-    /vcard - Manage vCard profile (admin only - direct chat)
-    /subscriptions - Manage subscription requests (admin only - CLI)
-    /help - Show this help`);
+                   await sendReply(`Available commands (groupchat: only whoami, whiteboard, help):
+  /list - Show contacts (admin only - direct chat)
+  /add <jid> [name] - Add contact (admin only - direct chat)
+  /remove <jid> - Remove contact (admin only - direct chat)
+  /admins - List admins (admin only - direct chat)
+  /whoami - Show your info (room/nick in groupchat)
+  /join <room> [nick] - Join MUC room (admin only - direct chat)
+  /rooms - List joined rooms (admin only - direct chat)
+   /leave <room> - Leave MUC room (admin only - direct chat)
+   /invite <contact> <room> - Invite contact to room (admin only - direct chat)
+   /whiteboard - Whiteboard drawing and image sharing
+   /vcard - Manage vCard profile (admin only - direct chat)
+   /help - Show this help`);
               
                 // SPECIAL CASE: /help forwards to agent ONLY in direct chat (not groupchat)
                 if (messageType === "chat" && contacts.exists(fromBareJid)) {
-                   secureLog.debug(`Forwarding /help to agent`);
+                   debugLog(`Forwarding /help to agent`);
                    onMessage(fromBareJid, body, { type: "chat", mediaUrls, mediaPaths });
                 }
                 // NO FORWARDING in groupchat - only local processing
@@ -1735,40 +1501,16 @@ async function startXmpp(cfg: any, contacts: any, log: any, onMessage: (from: st
                       whiteboardImage: true
                     });
                     await sendReply(`🖼️ Sharing image: ${url}`);
-                   } else {
+                  } else {
                     await sendReply(`Usage: /whiteboard draw <prompt> or /whiteboard send <url>`);
                   }
                   return;
 
-                case 'invite':
-                  // Invite a contact to a room (XEP-0246 MUC invite)
-                  if (!checkAdminAccess()) {
-                    await sendReply(messageType === "groupchat"
-                      ? "❌ Admin commands not available in groupchat. Use direct message."
-                      : "❌ Permission denied. Admin access required.");
-                    return;
-                  }
-                  if (args.length < 2) {
-                    await sendReply("Usage: /invite <jid> <room>");
-                    return;
-                  }
-                  const contact = args[0];
-                  const room = args[1];
-                  // Send MUC invite to the contact (from the room)
-                  const invite = xml("message", { to: room },
-                    xml("x", { xmlns: "http://jabber.org/protocol/muc#user" },
-                      xml("invite", { from: contact })
-                    )
-                  );
-                  await xmpp.send(invite);
-                  await sendReply(`✅ Invited ${contact} to ${room}`);
-                  return;
-
                 default:
-                  // Should not reach here for non-plugin commands (handled earlier)
-                  await sendReply(`Unknown command: /${command}. Type /help for available commands.`);
-                  return;
-           }
+                // Should not reach here for non-plugin commands (handled earlier)
+                await sendReply(`Unknown command: /${command}. Type /help for available commands.`);
+                return;
+          }
         } catch (err) {
           console.error("Error processing slash command:", err);
            try {
@@ -1785,10 +1527,10 @@ async function startXmpp(cfg: any, contacts: any, log: any, onMessage: (from: st
       }
       
        // Normal message processing
-       secureLog.debug(`[NORMAL] Processing message (type=${messageType})`);
+       debugLog(`[NORMAL] Processing message (type=${messageType})`);
        // Safety check: slash commands should never reach here
        if (body.startsWith('/')) {
-         secureLog.debug(`[ERROR] Slash command reached normal processing! This should not happen.`);
+         debugLog(`[ERROR] Slash command reached normal processing! This should not happen.`);
          return;
        }
        if (messageType === "groupchat") {
@@ -1796,27 +1538,27 @@ async function startXmpp(cfg: any, contacts: any, log: any, onMessage: (from: st
          const roomJid = from.split("/")[0];
          const nick = from.split("/")[1] || "";
          if (!nick) {
-           secureLog.debug(`Ignoring room message without nick (likely room subject)`);
+           debugLog(`Ignoring room message without nick (likely room subject)`);
            return;
          }
          const botNick = roomNicks.get(roomJid);
          // Ignore messages from ourselves
          if (botNick && nick === botNick) {
-           secureLog.debug(`Ignoring self-message from bot`);
+           debugLog(`Ignoring self-message from bot`);
            return;
          }
-         secureLog.debug(`[NORMAL] Forwarding groupchat message from ${nick} to agent`);
+         debugLog(`[NORMAL] Forwarding groupchat message from ${nick} to agent`);
          // For groupchat, use room JID for session
          onMessage(roomJid, body, { type: "groupchat", room: roomJid, nick, botNick, mediaUrls, mediaPaths });
        } else {
          // Direct message
          if (contacts.exists(fromBareJid)) {
-           secureLog.debug(`[NORMAL] Forwarding chat message from ${fromBareJid} to agent`);
+           debugLog(`[NORMAL] Forwarding chat message from ${fromBareJid} to agent`);
 
            // Use bare JID for session
            onMessage(fromBareJid, body, { type: "chat", mediaUrls, mediaPaths });
          } else {
-           secureLog.debug(`Ignoring message from non-contact: ${fromBareJid}`);
+           debugLog(`Ignoring message from non-contact: ${fromBareJid}`);
            log.debug(`Ignoring message from non-contact: ${fromBareJid}`);
          }
        }
@@ -1830,7 +1572,7 @@ async function startXmpp(cfg: any, contacts: any, log: any, onMessage: (from: st
 
    // HTTP File Upload (XEP-0363) helpers
    const requestUploadSlot = async (filename: string, size: number, contentType?: string): Promise<{putUrl: string, getUrl: string, headers?: Record<string, string>}> => {
-     secureLog.debug(`Requesting upload slot for ${filename} (${size} bytes)`);
+     debugLog(`Requesting upload slot for ${filename} (${size} bytes)`);
      
      // Create IQ request for upload slot
      const iqId = Math.random().toString(36).substring(2);
@@ -1840,7 +1582,7 @@ async function startXmpp(cfg: any, contacts: any, log: any, onMessage: (from: st
      
      try {
        const response = await xmpp.send(requestStanza);
-       secureLog.debug("Upload slot response received");
+       debugLog("Upload slot response received");
        
        const slot = response.getChild("slot", "urn:xmpp:http:upload:0");
        if (!slot) {
@@ -1868,7 +1610,7 @@ async function startXmpp(cfg: any, contacts: any, log: any, onMessage: (from: st
         }
        }
        
-       secureLog.debug(`Upload slot obtained for ${filename}`);
+       debugLog(`Upload slot obtained for ${filename}`);
        return { putUrl, getUrl, headers: Object.keys(putHeaders).length > 0 ? putHeaders : undefined };
      } catch (err) {
        console.error("Failed to request upload slot:", err);
@@ -1877,7 +1619,7 @@ async function startXmpp(cfg: any, contacts: any, log: any, onMessage: (from: st
    };
 
    const uploadFileViaHTTP = async (filePath: string, putUrl: string, headers?: Record<string, string>): Promise<void> => {
-     secureLog.debug(`Uploading file ${filePath}`);
+     debugLog(`Uploading file ${filePath}`);
      
      try {
        // Read file
@@ -1905,7 +1647,7 @@ async function startXmpp(cfg: any, contacts: any, log: any, onMessage: (from: st
          throw new Error(`HTTP upload failed: ${response.status} ${response.statusText}`);
        }
        
-       secureLog.debug(`File uploaded successfully`);
+       debugLog(`File uploaded successfully`);
      } catch (err) {
        console.error("File upload failed:", err);
        throw err;
@@ -1935,7 +1677,7 @@ async function startXmpp(cfg: any, contacts: any, log: any, onMessage: (from: st
        );
        
        await xmpp.send(message);
-       secureLog.debug(`File sent successfully to ${to}`);
+       debugLog(`File sent successfully to ${to}`);
      } catch (err) {
        console.error("Failed to send file via HTTP Upload:", err);
        throw err;
@@ -1944,7 +1686,7 @@ async function startXmpp(cfg: any, contacts: any, log: any, onMessage: (from: st
 
    // SI File Transfer (XEP-0096) helpers (fallback)
    const sendFileWithSITransfer = async (to: string, filePath: string, text?: string, isGroupChat?: boolean): Promise<void> => {
-     secureLog.debug(`Attempting SI file transfer to ${to}`);
+     debugLog(`Attempting SI file transfer to ${to}`);
      // For now, fallback to out-of-band URL sharing
      // TODO: Implement proper SI file transfer with bytestreams
      const filename = path.basename(filePath);
@@ -2046,17 +1788,17 @@ async function startXmpp(cfg: any, contacts: any, log: any, onMessage: (from: st
   import { registerXmppCli } from "./src/commands.js";
 
 export function register(api: any) {
-  secureLog.debug(`register() called, pluginRegistered=${pluginRegistered}`);
+  debugLog(`register() called, pluginRegistered=${pluginRegistered}`);
   if (pluginRegistered) {
     console.log("XMPP plugin already registered, skipping");
-    secureLog.debug("Plugin already registered, skipping");
+    debugLog("Plugin already registered, skipping");
     return;
   }
   pluginRegistered = true;
   const log = api.logger ?? console;
   log.info("Registering XMPP plugin");
   console.log("XMPP plugin register called - is this CLI or Gateway?");
-  secureLog.debug("Registering XMPP plugin");
+  debugLog("Registering XMPP plugin");
   
   // Check if this is CLI registration or Gateway registration
   // CLI registration: api.runtime is not available
@@ -2064,41 +1806,41 @@ export function register(api: any) {
   const isCliRegistration = !api.runtime;
   console.log(`Registration context: ${isCliRegistration ? 'CLI' : 'Gateway'}`);
   console.log(`api.runtime available: ${api.runtime ? 'yes' : 'no'}`);
-secureLog.debug(`Registration context: ${isCliRegistration ? 'CLI' : 'Gateway'}`);
+debugLog(`Registration context: ${isCliRegistration ? 'CLI' : 'Gateway'}`);
 
    // Debug: Inspect the api object
-   secureLog.debug("=== API OBJECT INSPECTION ===");
-   secureLog.debug("api keys: " + Object.keys(api).join(", "));
+   debugLog("=== API OBJECT INSPECTION ===");
+   debugLog("api keys: " + Object.keys(api).join(", "));
    const allApiProps: string[] = [];
    for (const key in api) {
      allApiProps.push(key);
    }
-   secureLog.debug("All api properties: " + allApiProps.join(", "));
+   debugLog("All api properties: " + allApiProps.join(", "));
    const apiMethods = allApiProps.filter(k => typeof api[k] === 'function');
-   secureLog.debug("All api methods: " + apiMethods.join(", "));
+   debugLog("All api methods: " + apiMethods.join(", "));
    
    // Check for runtime access (only for Gateway registration, not CLI)
    if (api.runtime && !isCliRegistration) {
      pluginRuntime = api.runtime;
-     secureLog.debug("api.runtime set for Gateway registration, keys: " + Object.keys(api.runtime).join(", "));
+     debugLog("api.runtime set for Gateway registration, keys: " + Object.keys(api.runtime).join(", "));
 
      if (api.runtime.channel) {
-       secureLog.debug("api.runtime.channel exists, keys: " + Object.keys(api.runtime.channel).join(", "));
+       debugLog("api.runtime.channel exists, keys: " + Object.keys(api.runtime.channel).join(", "));
 
        // Check if there's a generic message forwarding method
        const channelMethods = Object.keys(api.runtime.channel);
-       secureLog.debug("Channel methods available: " + channelMethods.join(", "));
+       debugLog("Channel methods available: " + channelMethods.join(", "));
 
        // Look for text, message, or routing methods
        const possibleForwardMethods = ['text', 'message', 'routing', 'dispatch', 'receive'];
        for (const method of possibleForwardMethods) {
          if (api.runtime.channel[method]) {
-           secureLog.debug("Found channel." + method);
+           debugLog("Found channel." + method);
 
            // If it's an object, log its methods
            if (typeof api.runtime.channel[method] === 'object') {
              const subMethods = Object.keys(api.runtime.channel[method]);
-             secureLog.debug("  channel." + method + " methods: " + subMethods.slice(0, 10).join(", "));
+             debugLog("  channel." + method + " methods: " + subMethods.slice(0, 10).join(", "));
            }
          }
        }
@@ -2106,35 +1848,35 @@ secureLog.debug(`Registration context: ${isCliRegistration ? 'CLI' : 'Gateway'}`
        // Also check session and activity which might handle messages
        if (api.runtime.channel.session) {
          const sessionMethods = Object.keys(api.runtime.channel.session);
-         secureLog.debug("channel.session methods: " + sessionMethods.slice(0, 10).join(", "));
+         debugLog("channel.session methods: " + sessionMethods.slice(0, 10).join(", "));
        }
        if (api.runtime.channel.activity) {
          const activityMethods = Object.keys(api.runtime.channel.activity);
-         secureLog.debug("channel.activity methods: " + activityMethods.slice(0, 10).join(", "));
+         debugLog("channel.activity methods: " + activityMethods.slice(0, 10).join(", "));
        }
      }
    } else if (isCliRegistration) {
-     secureLog.debug("CLI registration - not setting pluginRuntime");
+     debugLog("CLI registration - not setting pluginRuntime");
    } else {
-     secureLog.debug("api.runtime not available");
+     debugLog("api.runtime not available");
    }
-   secureLog.debug("=== END API INSPECTION ===");
+   debugLog("=== END API INSPECTION ===");
    
    // Check for emit method
-   secureLog.debug("Checking for api.emit method...");
+   debugLog("Checking for api.emit method...");
    if (typeof api.emit === 'function') {
-     secureLog.debug("api.emit is available");
+     debugLog("api.emit is available");
    } else {
-     secureLog.debug("api.emit not found");
+     debugLog("api.emit not found");
      // Check if emit is on a different object
      if (api.runtime?.emit) {
-       secureLog.debug("api.runtime.emit is available");
+       debugLog("api.runtime.emit is available");
      }
    }
    
    // Try to use api.on for event-based message forwarding
    if (typeof api.on === 'function') {
-     secureLog.debug("api.on is available for listening to events");
+     debugLog("api.on is available for listening to events");
    }
 
   const xmppChannelPlugin = {
@@ -2345,20 +2087,20 @@ gateway: {
       startAccount: async (ctx: any) => {
         const log = ctx.log;
         log?.info("XMPP gateway.startAccount called");
-        secureLog.debug("XMPP gateway.startAccount called");
+        debugLog("XMPP gateway.startAccount called");
         
         const account = ctx.account;
         const config = account.config;
         
-        secureLog.debug(`XMPP startAccount called for account ${account.accountId}`);
+        debugLog(`XMPP startAccount called for account ${account.accountId}`);
         
         if (!config?.jid?.trim() || !config?.password?.trim()) {
-          secureLog.debug("Missing jid or password");
+          debugLog("Missing jid or password");
           throw new Error("XMPP account missing jid or password");
         }
         
         log?.info(`[${account.accountId}] starting XMPP connection to ${config.service}`);
-        secureLog.debug(`Starting XMPP connection to ${config.service}`);
+        debugLog(`Starting XMPP connection to ${config.service}`);
         
         const contacts = new Contacts(config.dataDir);
         const contactList = contacts.list();
@@ -2382,11 +2124,11 @@ gateway: {
         // Check for existing connection to prevent duplicate connections
         const existingXmpp = xmppClients.get(account.accountId);
         if (existingXmpp) {
-          secureLog.debug(`Existing XMPP client found for ${account.accountId}, stopping it first`);
+          debugLog(`Existing XMPP client found for ${account.accountId}, stopping it first`);
           try {
             await existingXmpp.stop();
           } catch (err) {
-            secureLog.debug(`Error stopping existing client: ${err}`);
+            debugLog(`Error stopping existing client: ${err}`);
           }
           xmppClients.delete(account.accountId);
         }
@@ -2399,18 +2141,18 @@ gateway: {
  
          // Use pluginRuntime (from api.runtime) instead of ctx.runtime
          const runtime = pluginRuntime;
-         secureLog.debug("Using pluginRuntime in startAccount");
+         debugLog("Using pluginRuntime in startAccount");
          
           // Counter for unique message IDs
           let messageCounter = 0;
           
           const xmpp = await startXmpp(config, contacts, log, async (from: string, body: string, options?: { type?: string, room?: string, nick?: string, botNick?: string, mediaUrls?: string[], mediaPaths?: string[], whiteboardPrompt?: string, whiteboardRequest?: boolean, whiteboardImage?: boolean }) => {
             if (!isRunning) {
-              secureLog.debug("XMPP message ignored - plugin not running");
+              debugLog("XMPP message ignored - plugin not running");
               return;
             }
 
-             secureLog.debug(`XMPP inbound from ${from}`);
+             debugLog(`XMPP inbound from ${from}`);
              
               // Helper to build context payload based on message type
              // Uses shared session key (bare JID) for both direct and groupchat
@@ -2429,7 +2171,7 @@ gateway: {
                 const chatType = "direct" as const;
                 const conversationLabel = `XMPP: ${senderBareJid}`;
                 const botNick = options?.botNick || null;
-                secureLog.debug(`buildContextPayload: senderId=${senderId}, sessionKey=${sessionKey}`);
+                debugLog(`buildContextPayload: senderId=${senderId}, sessionKey=${sessionKey}`);
 
                 // Generate unique message ID using counter + timestamp
                 const uniqueMessageId = `xmpp-${Date.now()}-${++messageCounter}`;
@@ -2862,7 +2604,7 @@ gateway: {
         if (xmpp) {
           try {
             await xmpp.stop();
-            secureLog.debug("XMPP client stopped");
+            debugLog("XMPP client stopped");
           } catch (err) {
             ctx.log?.error("Error stopping XMPP client:", err);
           }

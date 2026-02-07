@@ -92,44 +92,6 @@ openclaw xmpp vcard set url "https://github.com/anomalyco/openclaw"
 openclaw xmpp vcard set desc "AI Assistant"
 ```
 
-### `openclaw xmpp subscriptions`
-Manage pending subscription requests (admin only).
-
-Subscription requests now require admin approval for security. Users must be approved before they can interact with the bot.
-
-```bash
-# Show subscriptions help
-openclaw xmpp subscriptions
-
-# List pending subscription requests
-openclaw xmpp subscriptions pending
-
-# Approve a subscription request
-openclaw xmpp subscriptions approve user@example.com
-
-# Deny a subscription request
-openclaw xmpp subscriptions deny user@example.com
-```
-
-### `openclaw xmpp invites`
-Manage pending room invite requests (admin only).
-
-Room invites now require admin approval for security. Invites from approved contacts are auto-approved.
-
-```bash
-# Show invites help
-openclaw xmpp invites
-
-# List pending room invites
-openclaw xmpp invites pending
-
-# Accept a room invite and join
-openclaw xmpp invites accept room@conference.example.com
-
-# Decline a room invite
-openclaw xmpp invites deny room@conference.example.com
-```
-
 ### FTP
 - **FTP File Management**: CLI commands to upload, download, list, and delete files via FTP using same credentials as XMPP server
   - `openclaw xmpp ftp upload <local-path> [remote-name]` - Upload file to FTP (overwrites existing)

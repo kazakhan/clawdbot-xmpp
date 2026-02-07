@@ -300,168 +300,15 @@ Note: Commands connect directly to XMPP server.`);
       }
     });
 
-  // Subcommand: subscriptions <action> [args]
+  // Subcommand: ftp <action> [args]
   xmpp
-    .command("subscriptions <action> [args...]")
-    .description("Manage pending subscription requests (admin only)")
+    .command("ftp <action> [args...]")
+    .description("FTP file management (upload, download, list, delete)")
     .action(async (action: string, args: string[]) => {
-      // Import pending subscriptions from main module
-      const globals = global as any;
+      const { ftpUpload, ftpDownload, ftpList, ftpDelete, ftpHelp } = await import('./ftp.js');
 
       if (action === 'help') {
-        console.log(`Subscription commands:
-  openclaw xmpp subscriptions pending - List pending subscription requests
-  openclaw xmpp subscriptions approve <jid> - Approve a pending subscription request
-  openclaw xmpp subscriptions deny <jid> - Deny a pending subscription request
-  openclaw xmpp subscriptions help - Show this help
-
-Pending subscriptions require admin approval before users can interact with the bot.`);
-        return;
-      }
-
-      if (action === 'pending') {
-        const pendingSubs: Map<string, { jid: string; timestamp: number; status: string }> | undefined = globals.pendingSubscriptions;
-        if (pendingSubs) {
-          const pending = Array.from(pendingSubs.values())
-            .filter(p => p.status === 'pending');
-
-          if (pending.length === 0) {
-            console.log('No pending subscription requests.');
-          } else {
-            console.log(`Pending subscription requests (${pending.length}):`);
-            for (const p of pending) {
-              const date = new Date(p.timestamp).toLocaleString();
-              console.log(`  - ${p.jid} (since ${date})`);
-            }
-          }
-        } else {
-          console.log('Unable to access pending subscriptions.');
-        }
-        return;
-      }
-
-      if (action === 'approve' && args.length >= 1) {
-        const jid = args[0];
-        const approveFn = globals.approveSubscription;
-        if (approveFn) {
-          console.log(`Approving subscription request from ${jid}...`);
-          const success = await approveFn(jid);
-          if (success) {
-            console.log(`✅ Subscription request approved.`);
-          } else {
-            console.log(`❌ Failed to approve subscription request.`);
-          }
-        } else {
-          console.log('Error: Subscription approval function not available.');
-          console.log('Make sure the XMPP gateway is running.');
-        }
-        return;
-      }
-
-      if (action === 'deny' && args.length >= 1) {
-        const jid = args[0];
-        const denyFn = globals.denySubscription;
-        if (denyFn) {
-          console.log(`Denying subscription request from ${jid}...`);
-          const success = await denyFn(jid);
-          if (success) {
-            console.log(`✅ Subscription request denied.`);
-          } else {
-            console.log(`❌ Failed to deny subscription request.`);
-          }
-        } else {
-          console.log('Error: Subscription denial function not available.');
-          console.log('Make sure the XMPP gateway is running.');
-        }
-        return;
-      }
-
-      console.log(`Invalid subscription command: ${action}`);
-      console.log('Use: openclaw xmpp subscriptions help');
-    });
-
-  // Subcommand: encrypt-password
-  xmpp
-    .command("encrypt-password")
-    .description("Encrypt XMPP password in config")
-    .action(async () => {
-      const fs = require('fs');
-      const readline = require('readline');
-
-      const configPath = path.join(process.env.USERPROFILE || process.env.HOME || '', '.openclaw', 'openclaw.json');
-
-      if (!fs.existsSync(configPath)) {
-        console.error('Config file not found:', configPath);
-        console.log('Run this command after configuring your XMPP account.');
-        return;
-      }
-
-      try {
-        const configData = fs.readFileSync(configPath, 'utf8');
-        const config = JSON.parse(configData);
-
-        const xmppConfig = config.channels?.xmpp?.accounts?.default;
-        if (!xmppConfig) {
-          console.error('XMPP account config not found in config file.');
-          console.log('Make sure you have configured your XMPP account first.');
-          return;
-        }
-
-        const { encryptPasswordInConfig, generateEncryptionKey } = await import('./security/encryption.js');
-
-        if (xmppConfig.password && xmppConfig.password.startsWith('ENC:')) {
-          console.log('Password is already encrypted.');
-          return;
-        }
-
-        if (!xmppConfig.password) {
-          console.error('No password found in config.');
-          return;
-        }
-
-        const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-
-        console.log('\n=== XMPP Password Encryption ===\n');
-        console.log('This will encrypt your XMPP password in the config file.');
-        console.log('An encryptionKey will be generated and stored in the config.\n');
-
-        rl.question('Enter your XMPP password to encrypt: ', async (plaintextPassword) => {
-          console.log('\nEncrypting password...');
-
-          const updatedConfig = encryptPasswordInConfig(xmppConfig, plaintextPassword);
-
-          if (!config.channels.xmpp.accounts) {
-            config.channels.xmpp.accounts = {};
-          }
-          config.channels.xmpp.accounts.default = updatedConfig;
-
-          fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
-
-          console.log('\nPassword encrypted successfully!');
-          console.log('Config file updated:', configPath);
-          console.log('\nIMPORTANT: Keep a backup of your config file!');
-          console.log('If you lose the encryptionKey in the config, you cannot recover the password.\n');
-
-          rl.close();
-        });
-
-        rl.on('close', () => {
-          process.exit(0);
-        });
-      } catch (err: any) {
-        console.error('Error:', err.message);
-      }
-    });
-
-  // Subcommand: sftp <action> [args]
-  xmpp
-    .command("sftp <action> [args...]")
-    .description("SFTP file management via SSH (upload, download, list, delete)")
-    .action(async (action: string, args: string[]) => {
-      const { sftpUpload, sftpDownload, sftpList, sftpDelete, sftpHelp } = await import('./sftp.js');
-
-      if (action === 'help') {
-        console.log(sftpHelp());
+        console.log(ftpHelp());
         return;
       }
 
@@ -469,7 +316,7 @@ Pending subscriptions require admin approval before users can interact with the 
         const localPath = args[0];
         const remoteName = args[1];
         console.log(`Uploading ${localPath}...`);
-        const result = await sftpUpload(localPath, remoteName);
+        const result = await ftpUpload(localPath, remoteName);
         if (result.ok) {
           console.log(`Uploaded: ${result.data}`);
         } else {
@@ -482,7 +329,7 @@ Pending subscriptions require admin approval before users can interact with the 
         const remoteName = args[0];
         const localPath = args[1];
         console.log(`Downloading ${remoteName}...`);
-        const result = await sftpDownload(remoteName, localPath);
+        const result = await ftpDownload(remoteName, localPath);
         if (result.ok) {
           console.log(`Downloaded: ${result.data}`);
         } else {
@@ -493,7 +340,7 @@ Pending subscriptions require admin approval before users can interact with the 
 
       if (action === 'ls') {
         console.log('Listing files...');
-        const result = await sftpList();
+        const result = await ftpList();
         if (result.ok && result.data) {
           if (result.data.length === 0) {
             console.log('No files in your folder');
@@ -509,7 +356,7 @@ Pending subscriptions require admin approval before users can interact with the 
       if (action === 'rm' && args.length >= 1) {
         const remoteName = args[0];
         console.log(`Deleting ${remoteName}...`);
-        const result = await sftpDelete(remoteName);
+        const result = await ftpDelete(remoteName);
         if (result.ok) {
           console.log('Deleted successfully');
         } else {
@@ -518,187 +365,36 @@ Pending subscriptions require admin approval before users can interact with the 
         return;
       }
 
-      console.log(`Invalid SFTP command: ${action}`);
-      console.log('Use: openclaw xmpp sftp help');
+      console.log(`Invalid FTP command: ${action}`);
+      console.log('Use: openclaw xmpp ftp help');
     });
 
-  // Subcommand: file-transfer-security
-  xmpp
-    .command("file-transfer-security [action] [args...]")
-    .description("Manage file transfer security settings")
-    .action(async (action: string, args: string[]) => {
-      if (!action || action === 'help' || action === 'status') {
-        console.log(`File Transfer Security Commands:
-  openclaw xmpp file-transfer-security status - Show security status and statistics
-  openclaw xmpp file-transfer-security quota [jid] - Show storage quota usage
-  openclaw xmpp file-transfer-security quarantine - List quarantined files
-  openclaw xmpp file-transfer-security cleanup - Clean up old temp files
-  openclaw xmpp file-transfer-security help - Show this help
+}
 
-File Transfer Security Features:
-  - MIME type validation
-  - File size limits (10MB max)
-  - Dangerous extension blocking (.exe, .bat, .sh, etc.)
-  - SHA-256 file hashing
-  - Per-user storage quotas (100MB default)
-  - Secure temp file handling
-  - File quarantine for suspicious files`);
-        return;
+// Legacy function for backward compatibility - now delegates to registerXmppCli
+export function registerCommands(api: any, dataPath: string) {
+  console.log("Registering XMPP CLI commands via registerCommands (legacy)");
+  
+  // Access globals from main module
+  const globals = global as any;
+  
+  registerXmppCli({
+    program: api.program,
+    getXmppClient: () => {
+      if (globals.xmppClients) {
+        const clients = Array.from(globals.xmppClients.values());
+        return clients.length > 0 ? clients[0] : null;
       }
-
-      if (action === 'status' || action === 'stats') {
-        console.log('\n=== File Transfer Security Status ===\n');
-        console.log('Features:');
-        console.log('  ✓ MIME type validation enabled');
-        console.log('  ✓ File size limits (10MB max)');
-        console.log('  ✓ Dangerous extension blocking');
-        console.log('  ✓ SHA-256 file hashing');
-        console.log('  ✓ Secure temp file handling');
-        console.log('  - Virus scanning: DISABLED (set enableVirusScan: true to enable)');
-        console.log('\nDirectories:');
-        console.log('  Temp directory: ./temp');
-        console.log('  Quarantine directory: ./quarantine');
-        console.log('\nLimits:');
-        console.log('  Max file size: 10MB');
-        console.log('  User storage quota: 100MB');
-        console.log('  Allowed MIME types: 16 types');
-        return;
-      }
-
-      if (action === 'quota') {
-        const jid = args[0] || 'default';
-        console.log(`\nStorage Quota for ${jid}:`);
-        console.log('  Note: Quota tracking requires gateway to be running');
-        console.log('  Run "openclaw xmpp file-transfer-security status" for gateway status');
-        return;
-      }
-
-      if (action === 'quarantine') {
-        console.log('\n=== Quarantined Files ===\n');
-        console.log('Note: Quarantine log requires gateway to be running');
-        console.log('Run "openclaw xmpp file-transfer-security status" for quarantine status');
-        return;
-      }
-
-      if (action === 'cleanup') {
-        console.log('\nCleaning up temp files...');
-        console.log('Note: Temp cleanup requires gateway to be running');
-        console.log('Files older than 1 hour would be deleted.');
-        return;
-      }
-
-      console.log(`Unknown file-transfer-security command: ${action}`);
-      console.log('Use: openclaw xmpp file-transfer-security help');
-    });
-
-  // Subcommand: audit
-  xmpp
-    .command("audit [action] [args...]")
-    .description("View and manage audit logs")
-    .action(async (action: string, args: string[]) => {
-      if (!action || action === 'help' || action === 'status') {
-         console.log(`Audit Log Commands:
-   openclaw xmpp audit status - Show audit logging status and statistics
-   openclaw xmpp audit list [limit] - List recent audit events
-   openclaw xmpp audit query [options] - Query audit events
-   openclaw xmpp audit export [days] - Export audit log to JSON
-   openclaw xmpp audit cleanup - Remove old audit logs
-   openclaw xmpp audit help - Show this help
-
-Audit Log Features:
-   - Records all security-relevant events
-   - Tracks authentication, authorization, and commands
-   - Logs file operations and transfers
-   - Monitors suspicious activity
-   - 30-day retention
-   - 10MB log file size limit
-
-Event Types Logged:
-   - Authentication: login_success, login_failure
-   - Authorization: permission_granted, permission_denied
-   - Commands: command_executed, command_failed
-   - File Operations: file_upload, file_download, file_delete
-   - Security: suspicious_activity, rate_limit_exceeded
-   - Admin Actions: subscription_approved/denied, invite_approved/denied
-   - Connections: xmpp_connected, xmpp_disconnected, room_joined/left`);
-         return;
-       }
-
-       if (action === 'status' || action === 'stats') {
-         console.log('\n=== Audit Logging Status ===\n');
-         console.log('Status: ENABLED');
-         console.log('Log Directory: ./logs');
-         console.log('Retention: 30 days');
-         console.log('Max File Size: 10MB');
-         console.log('Sensitive Fields: password, token, apiKey, credential, secret');
-         console.log('\nNote: Audit logging requires gateway to be running for full functionality.');
-         return;
-       }
-
-       if (action === 'list') {
-         const limit = parseInt(args[0]) || 20;
-         console.log(`\nRecent Audit Events (last ${limit}):\n`);
-         console.log('Note: Full audit log querying requires gateway to be running.');
-         console.log('Run the gateway and use "openclaw xmpp audit query" for detailed searches.');
-         return;
-       }
-
-       if (action === 'query') {
-         console.log('\n=== Query Audit Events ===\n');
-         console.log('Query parameters available:');
-         console.log('  --type <event_type> - Filter by event type');
-         console.log('  --user <jid> - Filter by user JID');
-         console.log('  --result success|failure - Filter by result');
-         console.log('  --days <number> - Look back N days');
-         console.log('  --limit <number> - Max results (default 100)');
-         console.log('\nNote: Full query functionality requires gateway to be running.');
-         return;
-       }
-
-       if (action === 'export') {
-         const days = parseInt(args[0]) || 7;
-         console.log(`\nExporting audit log (last ${days} days)...\n`);
-         console.log('Note: Export functionality requires gateway to be running.');
-         console.log('Run the gateway and use "openclaw xmpp audit export" to save to file.');
-         return;
-       }
-
-       if (action === 'cleanup') {
-         console.log('\nCleaning up old audit logs...');
-         console.log('Note: Cleanup requires gateway to be running.');
-         console.log('Logs older than 30 days would be removed.');
-         return;
-       }
-
-        console.log(`Unknown audit command: ${action}`);
-        console.log('Use: openclaw xmpp audit help');
-      });
-  }
-
-  // Legacy function for backward compatibility - now delegates to registerXmppCli
-  export function registerCommands(api: any, dataPath: string) {
-    console.log("Registering XMPP CLI commands via registerCommands (legacy)");
-
-    // Access globals from main module
-    const globals = global as any;
-
-    registerXmppCli({
-      program: api.program,
-      getXmppClient: () => {
-        if (globals.xmppClients) {
-          const clients = Array.from(globals.xmppClients.values());
-          return clients.length > 0 ? clients[0] : null;
-        }
-        return null;
-      },
-      logger: console,
-      getUnprocessedMessages: () => {
-        return globals.getUnprocessedMessages ? globals.getUnprocessedMessages() : [];
-      },
-      clearOldMessages: () => {
-        if (globals.clearOldMessages) globals.clearOldMessages();
-      },
-      messageQueue: globals.messageQueue || []
-    });
-    console.log("XMPP CLI commands registered successfully");
-  }
+      return null;
+    },
+    logger: console,
+    getUnprocessedMessages: () => {
+      return globals.getUnprocessedMessages ? globals.getUnprocessedMessages() : [];
+    },
+    clearOldMessages: () => {
+      if (globals.clearOldMessages) globals.clearOldMessages();
+    },
+    messageQueue: globals.messageQueue || []
+  });
+  console.log("XMPP CLI commands registered successfully");
+}
