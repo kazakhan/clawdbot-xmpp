@@ -123,6 +123,7 @@ openclaw xmpp vcard get <jid>        # Query vCard from server for any user
 ### In Chat vCard Profile
 
 vCard commands:
+```bash
 /vcard help - Show this help
 /vcard get - Show current vCard (from server)
 /vcard get <jid> - Show vCard for any user
@@ -131,6 +132,7 @@ vCard commands:
 /vcard set url <value> - Set URL
 /vcard set desc <value> - Set Description
 /vcard set avatarUrl <value> - Set Avatar URL 
+```
 
 ## SFTP File Management
 
