@@ -63,16 +63,6 @@ interface PendingSubscription {
 }
 export const pendingSubscriptions = new Map<string, PendingSubscription>();
 
-// Pending room invites (require admin approval)
-interface PendingInvite {
-  room: string;
-  inviter: string;
-  reason?: string;
-  timestamp: number;
-  status: 'pending' | 'approved' | 'denied';
-}
-export const pendingInvites = new Map<string, PendingInvite>();
-
 // File transfer size limits
 const MAX_FILE_SIZE_MB = 10;
 const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024;
@@ -1218,166 +1208,36 @@ async function startXmpp(cfg: any, contacts: any, log: any, onMessage: (from: st
       const to = stanza.attrs.to;
       const messageType = stanza.attrs.type || "chat";
       
-       // Check for MUC invites (require admin approval)
-       const xElement = stanza.getChild('x', 'http://jabber.org/protocol/muc#user');
-       if (xElement) {
-         const inviteElement = xElement.getChild('invite');
-         if (inviteElement) {
-           const inviter = inviteElement.attrs.from || from.split('/')[0];
+      // Check for MUC invites
+      const xElement = stanza.getChild('x', 'http://jabber.org/protocol/muc#user');
+      if (xElement) {
+        const inviteElement = xElement.getChild('invite');
+        if (inviteElement) {
+          const inviter = inviteElement.attrs.from || from.split('/')[0];
+          const reason = inviteElement.getChildText('reason') || 'No reason given';
+          console.log(`🤝 Received MUC invite to room ${from} from ${inviter}: ${reason}`);
+          
+          // Auto-accept invite by joining the room
+          try {
+            const room = from.split('/')[0];
+            const presence = xml("presence", { to: `${room}/${getDefaultNick()}` },
+              xml("x", { xmlns: "http://jabber.org/protocol/muc" },
+                xml("history", { maxstanzas: "0" })
+              )
+            );
+            await xmpp.send(presence);
+            joinedRooms.add(room);
+            roomNicks.set(room, getDefaultNick());
+            console.log(`✅ Auto-accepted invite to room ${room}`);
+          } catch (err) {
+            console.error(`❌ Failed to accept invite to room ${from}:`, err);
+          }
+          return;
+        }
+      }
 
-           // Validate inviter JID
-           const inviterValidation = validators.sanitizeJid(inviter);
-           if (!inviterValidation.valid) {
-             console.log(`[SECURITY] Invalid inviter JID: ${inviterValidation.error}`);
-             return;
-           }
-           const validInviter = inviterValidation.sanitized || inviter.split('/')[0];
-
-           const reason = inviteElement.getChildText('reason') || 'No reason given';
-
-           // Sanitize room name
-           const roomRaw = from.split('/')[0];
-           const roomValidation = validators.sanitizeRoomName(roomRaw);
-           if (!roomValidation.valid) {
-             console.log(`[SECURITY] Invalid room name: ${roomValidation.error}`);
-             return;
-           }
-           const room = roomValidation.sanitized || roomRaw;
-
-           console.log(`🤝 Received MUC invite to room ${room} from ${validInviter}: ${reason}`);
-
-            // Check if inviter is already approved (contact or admin)
-            const inviterBare = validInviter.split('/')[0];
-            const isApprovedContact = contacts.exists(inviterBare);
-            const isAdmin = contacts.isAdmin(inviterBare);
-
-            if (isApprovedContact || isAdmin) {
-              // Auto-accept invite from approved contacts or admins
-             try {
-               const presence = xml("presence", { to: `${room}/${getDefaultNick()}` },
-                 xml("x", { xmlns: "http://jabber.org/protocol/muc" },
-                   xml("history", { maxstanzas: "0" })
-                 )
-               );
-                await xmpp.send(presence);
-                joinedRooms.add(room);
-                roomNicks.set(room, getDefaultNick());
-                console.log(`✅ Auto-accepted invite to room ${room} (from ${isAdmin ? 'admin' : 'approved contact'} ${inviterBare})`);
-             } catch (err) {
-               console.error(`❌ Failed to accept invite to room ${room}:`, err);
-             }
-             return;
-           }
-
-           // Check if already pending
-           const existingPending = pendingInvites.get(room);
-           if (existingPending && existingPending.status === 'pending') {
-             console.log(`ℹ️ Invite to room ${room} already pending`);
-             return;
-           }
-
-           // Add to pending invites (requires admin approval)
-           pendingInvites.set(room, {
-             room,
-             inviter: inviterBare,
-             reason,
-             timestamp: Date.now(),
-             status: 'pending'
-           });
-           console.log(`📝 Invite to room ${room} from ${inviterBare} added to pending (requires admin approval)`);
-
-           // Notify admins
-           const adminJids = contacts.listAdmins();
-           if (adminJids.length > 0) {
-             const notificationMsg = `🔔 MUC invite received:\nRoom: ${room}\nFrom: ${inviterBare}\nReason: ${reason}\n\nUse /invites accept ${room} to join or /invites deny ${room} to decline.`;
-             for (const adminJid of adminJids) {
-               try {
-                 const notification = xml("message", { to: adminJid, type: "chat" },
-                   xml("body", {}, notificationMsg)
-                 );
-                 await xmpp.send(notification);
-               } catch (err) {
-                 console.error(`Failed to notify admin ${adminJid}:`, err);
-               }
-             }
-             console.log(`📢 Admins notified of pending room invite`);
-           } else {
-             console.log(`⚠️ No admins configured - invite pending but no one to approve`);
-           }
-           return;
-         }
-       }
-
-       // Helper to accept pending room invite
-       async function acceptRoomInvite(roomName: string): Promise<boolean> {
-         const pending = pendingInvites.get(roomName);
-         if (!pending || pending.status !== 'pending') {
-           console.log(`No pending invite found for room ${roomName}`);
-           return false;
-         }
-
-         try {
-           const presence = xml("presence", { to: `${roomName}/${getDefaultNick()}` },
-             xml("x", { xmlns: "http://jabber.org/protocol/muc" },
-               xml("history", { maxstanzas: "0" })
-             )
-           );
-           await xmpp.send(presence);
-           joinedRooms.add(roomName);
-           roomNicks.set(roomName, getDefaultNick());
-           console.log(`✅ Joined room ${roomName}`);
-
-           pending.status = 'approved';
-           pendingInvites.set(roomName, pending);
-
-           // Notify inviter
-           try {
-             const notifyMsg = xml("message", { to: pending.inviter, type: "chat" },
-               xml("body", {}, `✅ Your invite to room ${roomName} has been accepted!`)
-             );
-             await xmpp.send(notifyMsg);
-           } catch (err) {
-             console.error(`Failed to notify ${pending.inviter}:`, err);
-           }
-
-           return true;
-         } catch (err) {
-           console.error(`Failed to join room ${roomName}:`, err);
-           return false;
-         }
-       }
-
-       // Helper to deny pending room invite
-       async function denyRoomInvite(roomName: string): Promise<boolean> {
-         const pending = pendingInvites.get(roomName);
-         if (!pending || pending.status !== 'pending') {
-           console.log(`No pending invite found for room ${roomName}`);
-           return false;
-         }
-
-         pending.status = 'denied';
-         pendingInvites.set(roomName, pending);
-         console.log(`❌ Denied invite to room ${roomName}`);
-
-         // Notify inviter
-         try {
-           const notifyMsg = xml("message", { to: pending.inviter, type: "chat" },
-             xml("body", {}, `❌ Your invite to room ${roomName} has been declined.`)
-           );
-           await xmpp.send(notifyMsg);
-         } catch (err) {
-           console.error(`Failed to notify ${pending.inviter}:`, err);
-         }
-
-         return true;
-       }
-
-       // Export helper functions for commands module
-       (global as any).acceptRoomInvite = acceptRoomInvite;
-       (global as any).denyRoomInvite = denyRoomInvite;
-      
       // Check for room configuration forms (MUC owner namespace)
-      const mucOwnerX = stanza.getChild('x', 'http://jabber.org/protocol/muc#owner');
+       const mucOwnerX = stanza.getChild('x', 'http://jabber.org/protocol/muc#owner');
       if (mucOwnerX) {
         const xDataForm = mucOwnerX.getChild('x', 'jabber:x:data');
         if (xDataForm && xDataForm.attrs.type === 'form') {
@@ -1497,7 +1357,7 @@ async function startXmpp(cfg: any, contacts: any, log: any, onMessage: (from: st
           }
         
           // Define plugin-specific commands
-          const pluginCommands = new Set(['list', 'add', 'remove', 'admins', 'whoami', 'join', 'rooms', 'leave', 'invite', 'invites', 'whiteboard', 'vcard', 'help']);
+          const pluginCommands = new Set(['list', 'add', 'remove', 'admins', 'whoami', 'join', 'rooms', 'leave', 'invite', 'whiteboard', 'vcard', 'help']);
           const isPluginCommand = pluginCommands.has(command);
           
           secureLog.debug(`[SLASH] type=${messageType}, cmd=/${command}, isPlugin=${isPluginCommand}`);
@@ -1550,12 +1410,10 @@ async function startXmpp(cfg: any, contacts: any, log: any, onMessage: (from: st
     /join <room> [nick] - Join MUC room (admin only - direct chat)
     /rooms - List joined rooms (admin only - direct chat)
     /leave <room> - Leave MUC room (admin only - direct chat)
-    /invite <contact> <room> - Invite contact to room (admin only - direct chat)
-    /invites accept|deny <room> - Accept or decline a room invite
+    /invite <jid> <room> - Invite a contact to a room (admin only - direct chat)
     /whiteboard - Whiteboard drawing and image sharing
     /vcard - Manage vCard profile (admin only - direct chat)
     /subscriptions - Manage subscription requests (admin only - CLI)
-    /invites - Manage room invites (admin only - CLI)
     /help - Show this help`);
               
                 // SPECIAL CASE: /help forwards to agent ONLY in direct chat (not groupchat)
@@ -1883,7 +1741,7 @@ async function startXmpp(cfg: any, contacts: any, log: any, onMessage: (from: st
                   return;
 
                 case 'invite':
-                  // Invite a contact to a room - direct MUC invite
+                  // Invite a contact to a room (XEP-0246 MUC invite)
                   if (!checkAdminAccess()) {
                     await sendReply(messageType === "groupchat"
                       ? "❌ Admin commands not available in groupchat. Use direct message."
@@ -1891,49 +1749,19 @@ async function startXmpp(cfg: any, contacts: any, log: any, onMessage: (from: st
                     return;
                   }
                   if (args.length < 2) {
-                    await sendReply("Usage: /invite <contact> <room>");
+                    await sendReply("Usage: /invite <jid> <room>");
                     return;
                   }
-                  const contactToInvite = args[0];
-                  const room = args[1];  // Direct, no validation
-                  // Send invite TO the contact, FROM the admin (inviter)
-                  const inviterJid = fromBareJid;  // The admin's JID
-                  const invite = xml("message", { to: contactToInvite },
+                  const contact = args[0];
+                  const room = args[1];
+                  // Send MUC invite to the contact (from the room)
+                  const invite = xml("message", { to: room },
                     xml("x", { xmlns: "http://jabber.org/protocol/muc#user" },
-                      xml("invite", { from: inviterJid })
+                      xml("invite", { from: contact })
                     )
                   );
                   await xmpp.send(invite);
-                  await sendReply(`✅ Invited ${contactToInvite} to ${room}`);
-                  return;
-
-                case 'invites':
-                  // Handle /invites accept|deny in chat or groupchat (anyone can accept their own invites)
-                  if (args.length === 0 || args[0] === 'help') {
-                    await sendReply(`Invite commands:
-  /invites pending - List pending invites
-  /invites accept <room> - Accept invite and join
-  /invites deny <room> - Decline invite`);
-                    return;
-                  }
-                  const inviteSubcmd = args[0].toLowerCase();
-                  if (inviteSubcmd === 'pending') {
-                    const pending = Array.from(pendingInvites.values());
-                    if (pending.length === 0) {
-                      await sendReply("No pending room invites.");
-                    } else {
-                      const list = pending.map(p => `• ${p.room} from ${p.inviter}`).join('\n');
-                      await sendReply(`Pending invites (${pending.length}):\n${list}`);
-                    }
-                  } else if (inviteSubcmd === 'accept' && args[1]) {
-                    await acceptRoomInvite(args[1]);
-                    await sendReply(`✅ Joined room: ${args[1]}`);
-                  } else if (inviteSubcmd === 'deny' && args[1]) {
-                    await denyRoomInvite(args[1]);
-                    await sendReply(`✅ Declined invite: ${args[1]}`);
-                  } else {
-                    await sendReply("Usage: /invites accept|deny <room>");
-                  }
+                  await sendReply(`✅ Invited ${contact} to ${room}`);
                   return;
 
                 default:
