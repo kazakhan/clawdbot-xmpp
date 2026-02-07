@@ -5,6 +5,65 @@ All notable changes to the OpenClaw XMPP plugin will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.8] - 2026-02-08
+
+### Fixed
+- **Message Queue Processing Bug**: Fixed critical race condition in `xmpp poll` command where messages were being marked as processed immediately when dispatch was initiated, not when it succeeded. This caused messages to disappear from the poll queue even when dispatch failed asynchronously.
+
+#### Changes
+- `index.ts:341` - Changed queue ordering from `unshift()` to `push()` for proper FIFO ordering
+- `index.ts:2189-2191` - Added `dispatchSuccess` and `dispatchError` tracking variables at callback scope
+- `index.ts:2465-2545` - Restructured dispatch methods to properly await results and verify success before marking messages as processed
+- `index.ts:2570-2631` - Updated fallback methods (ctx methods and dispatchInboundMessage) to use same success tracking pattern
+
+#### Root Cause
+The original code used fire-and-forget dispatch with `.then()`/`.catch()` handlers, but called `markAsProcessed(messageId)` immediately after dispatch was initiated, not after it completed successfully. This meant:
+- If dispatch failed asynchronously, the message was already marked as processed
+- Failed messages were lost and not visible in `xmpp poll`
+- No retry mechanism existed for failed dispatches
+
+#### Solution
+- Converted fire-and-forget dispatch to proper `await` patterns
+- Only call `markAsProcessed()` when dispatch actually succeeds
+- Added `dispatchSuccess` boolean flag to track outcome
+- Log clear error messages when dispatch fails
+- Messages now remain in queue when dispatch fails, allowing retry via `xmpp poll`
+
+### Added
+- **Missing CLI Command**: Implemented `openclaw xmpp add <jid> [name]` command for adding contacts to whitelist
+
+#### New Commands
+- `openclaw xmpp add <jid> [name]` - Add contact to whitelist (required for bot responses)
+- `openclaw xmpp contacts` - List whitelisted contacts
+
+#### Changes
+- `src/commands.ts` - Added `getContacts` parameter to `registerXmppCli` function
+- `src/commands.ts` - Added `add <jid> [name]` command implementation using Contacts class
+- `src/commands.ts` - Added `contacts` command to list whitelisted contacts
+- `src/commands.ts` - Updated legacy `registerCommands` function to include `getContacts`
+- `index.ts` - Added `contactsStore` global Map for Contacts instances by account ID
+- `index.ts` - Stores contacts instance when created for CLI access
+- `index.ts` - Updated `registerXmppCli` call to provide `getContacts` callback
+
+#### Features
+- Validates JID format (must contain `@` symbol)
+- Handles duplicate contacts (updates name if already exists)
+- Uses existing `Contacts` class for persistent JSON storage
+- Provides clear success/error feedback to user
+- Works with both direct Contacts instance and fallback instantiation
+
+#### Usage
+```bash
+# Add a contact
+openclaw xmpp add sarah@kazakhan.com
+
+# Add a contact with custom name
+openclaw xmpp add sarah@kazakhan.com "Sarah"
+
+# List whitelisted contacts
+openclaw xmpp contacts
+```
+
 ## [1.6.7] - 2026-02-07
 
 ### Security

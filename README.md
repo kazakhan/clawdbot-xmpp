@@ -280,7 +280,3 @@ Enable shared session memory between direct chat and groupchat for identified us
 ```
 
 This uses consistent session keys (`xmpp:user@domain.com`) across conversation types for memory continuity.
-
-## License
-
-Part of OpenClaw ecosystem. See main repository for license info.

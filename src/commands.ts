@@ -64,7 +64,8 @@ export function registerXmppCli({
   logger,
   getUnprocessedMessages,
   clearOldMessages,
-  messageQueue
+  messageQueue,
+  getContacts
 }: any) {
   const xmpp = program
     .command("xmpp")
@@ -216,16 +217,119 @@ export function registerXmppCli({
       console.log(`Cleared ${oldCount - messageQueue.length} old messages`);
     });
 
+  // Subcommand: add <jid> [name]
+  xmpp
+    .command("add <jid> [name]")
+    .description("Add contact to whitelist (required for bot responses)")
+    .action(async (jid: string, name?: string) => {
+      // Basic JID validation
+      if (!jid || !jid.includes('@')) {
+        console.error("Invalid JID format. Expected: user@domain.com");
+        console.error("Usage: openclaw xmpp add <jid> [name]");
+        return;
+      }
+
+      try {
+        const contacts = getContacts?.();
+        if (contacts?.add) {
+          const success = contacts.add(jid, name);
+          if (success) {
+            const displayName = name || jid.split('@')[0];
+            console.log(`✓ Contact added: ${jid}`);
+            console.log(`  Name: ${displayName}`);
+            console.log(`  Note: Bot will only respond to whitelisted contacts`);
+          } else {
+            console.error("Failed to add contact");
+          }
+        } else {
+          // Fallback: direct Contacts class instantiation
+          const path = await import('path');
+          const fs = await import('fs');
+          const dataDir = process.env.OPENCLAW_DATA || path.join(process.cwd(), 'data');
+          
+          if (!fs.existsSync(dataDir)) {
+            fs.mkdirSync(dataDir, { recursive: true });
+          }
+          
+          const { Contacts } = await import('./contacts.js');
+          const contactsInstance = new Contacts(dataDir);
+          
+          if (contactsInstance.exists(jid)) {
+            console.log(`Contact already exists: ${jid}`);
+            const existingName = contactsInstance.getName(jid);
+            if (existingName) {
+              console.log(`  Current name: ${existingName}`);
+            }
+          } else {
+            contactsInstance.add(jid, name);
+            const displayName = name || jid.split('@')[0];
+            console.log(`✓ Contact added: ${jid}`);
+            console.log(`  Name: ${displayName}`);
+            console.log(`  Note: Bot will only respond to whitelisted contacts`);
+          }
+        }
+      } catch (err: any) {
+        console.error(`Error adding contact: ${err.message}`);
+      }
+    });
+
+  // Subcommand: contacts
+  xmpp
+    .command("contacts")
+    .description("List whitelisted contacts")
+    .action(async () => {
+      try {
+        const contacts = getContacts?.();
+        if (contacts?.list) {
+          const contactList = contacts.list();
+          if (contactList.length === 0) {
+            console.log("No contacts in whitelist");
+            console.log("Add contacts with: openclaw xmpp add <jid> [name]");
+          } else {
+            console.log(`Whitelisted contacts (${contactList.length}):`);
+            contactList.forEach((c: any) => {
+              console.log(`  ${c.jid}: ${c.name || '(no name)'}`);
+            });
+          }
+        } else {
+          // Fallback: direct Contacts class instantiation
+          const path = await import('path');
+          const fs = await import('fs');
+          const dataDir = process.env.OPENCLAW_DATA || path.join(process.cwd(), 'data');
+          
+          if (!fs.existsSync(dataDir)) {
+            fs.mkdirSync(dataDir, { recursive: true });
+          }
+          
+          const { Contacts } = await import('./contacts.js');
+          const contactsInstance = new Contacts(dataDir);
+          const contactList = contactsInstance.list();
+          
+          if (contactList.length === 0) {
+            console.log("No contacts in whitelist");
+            console.log("Add contacts with: openclaw xmpp add <jid> [name]");
+          } else {
+            console.log(`Whitelisted contacts (${contactList.length}):`);
+            contactList.forEach((c: any) => {
+              console.log(`  ${c.jid}: ${c.name || '(no name)'}`);
+            });
+          }
+        }
+      } catch (err: any) {
+        console.error(`Error listing contacts: ${err.message}`);
+      }
+    });
+
   // Subcommand: queue
-   xmpp
-     .command("queue")
-     .description("Show message queue status")
-     .action(() => {
-       console.log(`Message queue: ${messageQueue.length} total, ${getUnprocessedMessages().length} unprocessed`);
-       messageQueue.slice(0, 5).forEach((msg, i) => {
-         console.log(`${i+1}. ${msg.processed ? '✓' : '✗'} [${msg.accountId}] ${msg.from}: ${msg.body.substring(0, 50)}${msg.body.length > 50 ? '...' : ''}`);
-       });
-     });
+  xmpp
+    .command("queue")
+    .description("Show message queue status")
+    .action(() => {
+      console.log(`Message queue: ${messageQueue.length} total, ${getUnprocessedMessages().length} unprocessed`);
+      messageQueue.slice(0, 5).forEach((msg, i) => {
+        console.log(`${i+1}. ${msg.processed ? '✓' : '✗'} [${msg.accountId}] ${msg.from}: ${msg.body.substring(0, 50)}${msg.body.length > 50 ? '...' : ''}`);
+      });
+    });
 
   // Subcommand: vcard <action> [args]
   xmpp
@@ -448,7 +552,8 @@ export function registerCommands(api: any, dataPath: string) {
     clearOldMessages: () => {
       if (globals.clearOldMessages) globals.clearOldMessages();
     },
-    messageQueue: globals.messageQueue || []
+    messageQueue: globals.messageQueue || [],
+    getContacts: () => globals.contactsStore?.get("default") || globals.contactsStore?.values().next().value || null
   });
   console.log("XMPP CLI commands registered successfully");
 }

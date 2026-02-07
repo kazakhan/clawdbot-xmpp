@@ -31,6 +31,9 @@ export class JsonStore<T extends object> {
   
   private load(): T {
     if (!fs.existsSync(this.filePath)) {
+      if (Array.isArray(this.defaults)) {
+        return [...this.defaults] as unknown as T;
+      }
       return { ...this.defaults };
     }
     try {
@@ -38,6 +41,9 @@ export class JsonStore<T extends object> {
       const parsed = JSON.parse(content);
       return this.onLoad ? this.onLoad(parsed) : parsed;
     } catch {
+      if (Array.isArray(this.defaults)) {
+        return [...this.defaults] as unknown as T;
+      }
       return { ...this.defaults };
     }
   }
@@ -52,6 +58,9 @@ export class JsonStore<T extends object> {
   }
   
   get(): T {
+    if (Array.isArray(this.data)) {
+      return [...this.data] as unknown as T;
+    }
     return { ...this.data };
   }
   

@@ -45,6 +45,9 @@ let pluginRegistered = false;
 // Global store for XMPP clients by account ID
 export const xmppClients = new Map<string, any>();
 
+// Global store for Contacts by account ID
+export const contactsStore = new Map<string, any>();
+
 // Store runtime for message forwarding
 let pluginRuntime: any = null;
 
@@ -338,7 +341,7 @@ function addToQueue(message: Omit<QueuedMessage, 'id' | 'timestamp' | 'processed
     processed: false,
   };
   
-  messageQueue.unshift(queuedMessage);
+  messageQueue.push(queuedMessage);
   
   // Keep queue size manageable
   if (messageQueue.length > messageQueueMaxSize) {
@@ -2139,8 +2142,9 @@ gateway: {
         log?.info(`[${account.accountId}] starting XMPP connection to ${config.service}`);
         debugLog(`Starting XMPP connection to ${config.service}`);
         
-        const contacts = new Contacts(config.dataDir);
-        const contactList = contacts.list();
+         const contacts = new Contacts(config.dataDir);
+         contactsStore.set(account.accountId, contacts);
+         const contactList = contacts.list();
         log?.info(`[${account.accountId}] loaded ${contactList.length} contacts`);
         
         // Initialize super admin from config if specified
@@ -2183,15 +2187,19 @@ gateway: {
           // Counter for unique message IDs
           let messageCounter = 0;
           
-          const xmpp = await startXmpp(config, contacts, log, async (from: string, body: string, options?: { type?: string, room?: string, nick?: string, botNick?: string, mediaUrls?: string[], mediaPaths?: string[], whiteboardPrompt?: string, whiteboardRequest?: boolean, whiteboardImage?: boolean }) => {
-            if (!isRunning) {
-              debugLog("XMPP message ignored - plugin not running");
-              return;
-            }
+           const xmpp = await startXmpp(config, contacts, log, async (from: string, body: string, options?: { type?: string, room?: string, nick?: string, botNick?: string, mediaUrls?: string[], mediaPaths?: string[], whiteboardPrompt?: string, whiteboardRequest?: boolean, whiteboardImage?: boolean }) => {
+             if (!isRunning) {
+               debugLog("XMPP message ignored - plugin not running");
+               return;
+             }
 
-             debugLog(`XMPP inbound from ${from}`);
-             
-              // Helper to build context payload based on message type
+              debugLog(`XMPP inbound from ${from}`);
+              
+              // Track dispatch success for message processing
+              let dispatchSuccess = false;
+              let dispatchError: any = null;
+              
+               // Helper to build context payload based on message type
              // Uses shared session key (bare JID) for both direct and groupchat
               const buildContextPayload = (sessionKey: string, senderBareJid: string) => {
                 const room = options?.room || from;
@@ -2278,20 +2286,24 @@ gateway: {
               console.error('[MessageStore] Failed to persist message:', err);
             }
             
-             // Try to forward message using runtime channel methods
-            // Use captured runtime from closure
-            if (runtime?.channel) {
-              console.log("Attempting to forward via runtime.channel methods");
+              // Try to forward message using runtime channel methods
+             // Use captured runtime from closure
+             if (runtime?.channel) {
+               console.log("Attempting to forward via runtime.channel methods");
+               
+               // Track dispatch success across all methods
+               let dispatchSuccess = false;
+               let dispatchError: any = null;
+               
+               // Route-based routing is disabled (future feature)
+               // const route: { agentId: string; sessionKey: string; mainSessionKey?: string } | null = null;
+               // if (route) { ... }
               
-              // Route-based routing is disabled (future feature)
-              // const route: { agentId: string; sessionKey: string; mainSessionKey?: string } | null = null;
-              // if (route) { ... }
-             
-              // Fallback: Try the simple approach if routing failed
-              if (runtime.channel.session?.recordInboundSession) {
-                console.log(`Fallback for ${options?.type} message from ${from}`);
-                try {
-                  console.log("Trying simple recordInboundSession as fallback");
+               // Fallback: Try the simple approach if routing failed
+               if (runtime.channel.session?.recordInboundSession) {
+                 console.log(`Fallback for ${options?.type} message from ${from}`);
+                 try {
+                   console.log("Trying simple recordInboundSession as fallback");
                   
                   // Get store path using main agent (matches session store path)
                   const storePath = runtime.channel.session.resolveStorePath(ctx.cfg.session?.store, {
@@ -2343,181 +2355,199 @@ gateway: {
                     },
                   });
                   
-                   console.log("✅ Message recorded via fallback");
-                   console.log("✅ Message recorded to session store");
-                   
-                   // Check what dispatch methods are available
-                   console.log("Checking available dispatch methods...");
-                   console.log("runtime.channel.reply methods:", runtime.channel.reply ? Object.keys(runtime.channel.reply) : "none");
-                   console.log("runtime.dispatchInboundMessage?", typeof runtime.dispatchInboundMessage === 'function' ? "yes" : "no");
-                   
-
+                    console.log("✅ Message recorded via fallback");
+                    console.log("✅ Message recorded to session store");
                     
-                    // Try BOTH methods - dispatchReplyFromConfig works but has delays
+                    // Check what dispatch methods are available
+                    console.log("Checking available dispatch methods...");
+                    console.log("runtime.channel.reply methods:", runtime.channel.reply ? Object.keys(runtime.channel.reply) : "none");
+                    console.log("runtime.dispatchInboundMessage?", typeof runtime.dispatchInboundMessage === 'function' ? "yes" : "no");
+                    
+ 
+                     
+                    // Track dispatch success across all methods
+                    let dispatchSuccess = false;
+                    let dispatchError: any = null;
+                    
+                    console.log("=== STARTING DISPATCH ===");
+                    console.log("Time:", new Date().toISOString());
+                    
                     try {
-                      console.log("=== STARTING DISPATCH ===");
-                      console.log("Time:", new Date().toISOString());
-                      
-                      // METHOD 1: dispatchReplyFromConfig (works but slow)
-                      if (runtime.channel.reply?.dispatchReplyFromConfig) {
-                        console.log("🎯 METHOD 1: dispatchReplyFromConfig (fast path)");
-                        
-                        const immediateSendText = async (to: string, text: string) => {
-                          console.log("🚀 IMMEDIATE sendText CALLED! Time:", new Date().toISOString());
-                          console.log("  To:", to);
-                          console.log("  Text:", text);
+                      // METHOD 1: dispatchReplyFromConfig (fast path)
+                      if (runtime.channel.reply?.dispatchReplyFromConfig && !dispatchSuccess) {
+                         console.log("🎯 METHOD 1: dispatchReplyFromConfig (fast path)");
+                         
+                         const immediateSendText = async (to: string, text: string) => {
+                           console.log("🚀 IMMEDIATE sendText CALLED! Time:", new Date().toISOString());
+                           console.log("  To:", to);
+                           console.log("  Text:", text);
+                           
+                           let jid = to;
+                            if (to.startsWith('xmpp:')) {
+                              jid = to.substring(5);
+                            }
+
+                            // Filter out "Thinking..." prefixes from agent responses
+                            let cleanText = text;
+                            const thinkingRegex = /^(Thinking[. ]+.*?[\n\r]+)+/i;
+                            const match = text.match(thinkingRegex);
+                            if (match) {
+                              console.log(`[FILTER] Removing "Thinking..." prefix`);
+                              cleanText = text.slice(match[0].length).trim();
+                            }
+
+                             try {
+                               if (options?.type === "groupchat") {
+                                 await xmpp.sendGroupchat(jid, cleanText);
+                                 console.log("✅✅✅ GROUPCHAT REPLY SENT VIA XMPP! Time:", new Date().toISOString());
+                               } else {
+                                 await xmpp.send(jid, cleanText);
+                                 console.log("✅✅✅ DIRECT REPLY SENT VIA XMPP! Time:", new Date().toISOString());
+                               }
+                               
+                                // Save outbound message to persistence
+                                // For direct messages, save to the RECIPIENT's file (jid), not sender's (config.jid)
+                                try {
+                                  const saveStart = Date.now();
+                                  messageStore.saveMessage({
+                                    direction: 'outbound',
+                                    type: (options?.type || 'chat') as 'chat' | 'groupchat',
+                                    roomJid: options?.room || undefined,
+                                    fromBareJid: jid,  // Save to recipient's file
+                                    fromFullJid: `${config.jid}/openclaw`,
+                                    to: config.jid,
+                                    body: cleanText,
+                                    timestamp: Date.now(),
+                                    accountId: account.accountId
+                                  });
+                                  console.log(`[MessageStore] Persisted outbound ${options?.type || 'chat'} message to ${jid} (${Date.now() - saveStart}ms)`);
+                                } catch (err) {
+                                  console.error('[MessageStore] Failed to save outbound message:', err);
+                                }
+                               
+                               return { ok: true, channel: "xmpp" };
+                             } catch (err) {
+                               console.error('❌❌❌ XMPP SEND ERROR:', err);
+                               return { ok: false, error: String(err), channel: "xmpp" };
+                             }
+                           };
+                           const replyToXmpp = `xmpp:${replyTo}`;
+                           
+                           const simpleDispatcher = {
+                             sendBlockReply: async (payload: any) => {
+                               console.log("🎯 DISPATCHER sendBlockReply called!", payload);
+                               return immediateSendText(replyToXmpp, payload?.text || payload?.message || payload?.body || JSON.stringify(payload));
+                             },
+                             sendFinalReply: async (payload: any) => {
+                               console.log("🎯 DISPATCHER sendFinalReply called!", payload);
+                               return immediateSendText(replyToXmpp, payload?.text || payload?.message || payload?.body || JSON.stringify(payload));
+                             },
+                             deliver: async (payload: any) => {
+                               console.log("🎯 DISPATCHER deliver called!", payload);
+                               return immediateSendText(replyToXmpp, payload?.text || payload?.message || payload?.body || JSON.stringify(payload));
+                             },
+                             sendText: async (to: string, text: string) => {
+                               console.log("🎯 DISPATCHER sendText called!", { to, text });
+                               return immediateSendText(to, text);
+                             },
+                             sendMessage: async (msg: any) => {
+                               console.log("🎯 DISPATCHER sendMessage called!", msg);
+                               return immediateSendText(msg?.to || replyToXmpp, msg?.text || msg?.body || JSON.stringify(msg));
+                             },
+                            
+                            // Stub other methods
+                            waitForIdle: async () => ({ ok: true }),
+                            getQueuedCounts: async () => ({ ok: true, counts: {} }),
+                          };
+                         
+                          const dispatchStart = Date.now();
                           
-                          let jid = to;
+                          // Properly await dispatch result
+                          console.log("🔄 Calling dispatchReplyFromConfig...");
+                          try {
+                            const result = await runtime.channel.reply.dispatchReplyFromConfig({
+                              ctx: ctxPayload,
+                              cfg: ctx.cfg,
+                              dispatcher: simpleDispatcher,
+                              replyOptions: {},
+                            });
+                            console.log("✅ dispatchReplyFromConfig returned:", result);
+                            if (result?.ok !== false) {
+                              dispatchSuccess = true;
+                            }
+                          } catch (err) {
+                            console.error("❌ Dispatch error (Method 1):", err);
+                            dispatchError = err;
+                          }
+                          
+                          if (dispatchSuccess) {
+                            console.log(`✅ METHOD 1 succeeded`);
+                          }
+                       }
+                       
+                       // METHOD 2: dispatchReplyWithBufferedBlockDispatcher (if first failed)
+                       if (runtime.channel.reply?.dispatchReplyWithBufferedBlockDispatcher && !dispatchSuccess) {
+                         console.log("🎯 METHOD 2: dispatchReplyWithBufferedBlockDispatcher (backup)");
+                         
+                         const sendText = async (to: string, text: string) => {
+                           console.log("📤 METHOD 2 sendText CALLED!");
+                           console.log("  To:", to);
+                           console.log("  Text:", text);
+                           
+                           let jid = to;
                            if (to.startsWith('xmpp:')) {
                              jid = to.substring(5);
                            }
-
-                           // Filter out "Thinking..." prefixes from agent responses
-                           let cleanText = text;
-                           const thinkingRegex = /^(Thinking[. ]+.*?[\n\r]+)+/i;
-                           const match = text.match(thinkingRegex);
-                           if (match) {
-                             console.log(`[FILTER] Removing "Thinking..." prefix`);
-                             cleanText = text.slice(match[0].length).trim();
-                           }
-
+                           
                             try {
                               if (options?.type === "groupchat") {
-                                await xmpp.sendGroupchat(jid, cleanText);
-                                console.log("✅✅✅ GROUPCHAT REPLY SENT VIA XMPP! Time:", new Date().toISOString());
+                                await xmpp.sendGroupchat(jid, text);
+                                console.log("✅✅✅ GROUPCHAT REPLY SENT VIA XMPP (Method 2)!");
                               } else {
-                                await xmpp.send(jid, cleanText);
-                                console.log("✅✅✅ DIRECT REPLY SENT VIA XMPP! Time:", new Date().toISOString());
+                                await xmpp.send(jid, text);
+                                console.log("✅✅✅ DIRECT REPLY SENT VIA XMPP (Method 2)!");
                               }
-                              
-                               // Save outbound message to persistence
-                               // For direct messages, save to the RECIPIENT's file (jid), not sender's (config.jid)
-                               try {
-                                 const saveStart = Date.now();
-                                 messageStore.saveMessage({
-                                   direction: 'outbound',
-                                   type: (options?.type || 'chat') as 'chat' | 'groupchat',
-                                   roomJid: options?.room || undefined,
-                                   fromBareJid: jid,  // Save to recipient's file
-                                   fromFullJid: `${config.jid}/openclaw`,
-                                   to: config.jid,
-                                   body: cleanText,
-                                   timestamp: Date.now(),
-                                   accountId: account.accountId
-                                 });
-                                 console.log(`[MessageStore] Persisted outbound ${options?.type || 'chat'} message to ${jid} (${Date.now() - saveStart}ms)`);
-                               } catch (err) {
-                                 console.error('[MessageStore] Failed to save outbound message:', err);
-                               }
-                              
                               return { ok: true, channel: "xmpp" };
                             } catch (err) {
-                              console.error("❌ XMPP SEND ERROR:", err);
+                              console.error("❌ XMPP SEND ERROR (Method 2):", err);
                               return { ok: false, error: String(err) };
                             }
-                        };
-                        
-                          // Create a SIMPLE dispatcher that executes immediately
-                          const replyToXmpp = `xmpp:${replyTo}`;
-                          console.log(`[DISPATCH] Using replyTo: ${replyToXmpp} for ${options?.type}`);
-                          const simpleDispatcher = {
-                            sendBlockReply: async (payload: any) => {
-                              console.log("🎯 DISPATCHER sendBlockReply called!", payload);
-                              return immediateSendText(replyToXmpp, payload?.text || payload?.message || payload?.body || JSON.stringify(payload));
-                            },
-                            sendFinalReply: async (payload: any) => {
-                              console.log("🎯 DISPATCHER sendFinalReply called!", payload);
-                              return immediateSendText(replyToXmpp, payload?.text || payload?.message || payload?.body || JSON.stringify(payload));
-                            },
-                            deliver: async (payload: any) => {
-                              console.log("🎯 DISPATCHER deliver called!", payload);
-                              return immediateSendText(replyToXmpp, payload?.text || payload?.message || payload?.body || JSON.stringify(payload));
-                            },
-                            sendText: async (to: string, text: string) => {
-                              console.log("🎯 DISPATCHER sendText called!", { to, text });
-                              return immediateSendText(to, text);
-                            },
-                            sendMessage: async (msg: any) => {
-                              console.log("🎯 DISPATCHER sendMessage called!", msg);
-                              return immediateSendText(msg?.to || replyToXmpp, msg?.text || msg?.body || JSON.stringify(msg));
-                            },
-                           
-                           // Stub other methods
-                           waitForIdle: async () => ({ ok: true }),
-                           getQueuedCounts: async () => ({ ok: true, counts: {} }),
                          };
-                        
-                         const dispatchStart = Date.now();
                          
-                          // Fire-and-forget: dispatch without await to prevent blocking
-                          // The simpleDispatcher will call immediateSendText when agent responds
-                          console.log("🔄 Calling dispatchReplyFromConfig...");
-                          runtime.channel.reply.dispatchReplyFromConfig({
-                            ctx: ctxPayload,
-                            cfg: ctx.cfg,
-                            dispatcher: simpleDispatcher,
-                            replyOptions: {},
-                          }).then((result: any) => {
-                            console.log("✅ dispatchReplyFromConfig returned:", result);
-                          }).catch((err: any) => {
-                            console.error("❌ Dispatch error (non-blocking):", err);
-                          });
-                         
-                         console.log(`✅ METHOD 1 dispatched (non-blocking)`);
-                      }
-                      
-                      // METHOD 2: dispatchReplyWithBufferedBlockDispatcher (if first fails)
-                      if (runtime.channel.reply?.dispatchReplyWithBufferedBlockDispatcher) {
-                        console.log("🎯 METHOD 2: dispatchReplyWithBufferedBlockDispatcher (backup)");
-                        
-                        const sendText = async (to: string, text: string) => {
-                          console.log("📤 METHOD 2 sendText CALLED!");
-                          console.log("  To:", to);
-                          console.log("  Text:", text);
+                          const dispatchStart = Date.now();
                           
-                          let jid = to;
-                          if (to.startsWith('xmpp:')) {
-                            jid = to.substring(5);
+                          // Properly await dispatch
+                          try {
+                            await runtime.channel.reply.dispatchReplyWithBufferedBlockDispatcher({
+                              ctx: ctxPayload,
+                              cfg: ctx.cfg,
+                              sendText: sendText,
+                              dispatcherOptions: {},
+                            });
+                            dispatchSuccess = true;
+                            console.log(`✅ METHOD 2 succeeded`);
+                          } catch (err) {
+                            console.error("Method 2 dispatch error:", err);
+                            dispatchError = err;
                           }
-                          
-                           try {
-                             if (options?.type === "groupchat") {
-                               await xmpp.sendGroupchat(jid, text);
-                               console.log("✅✅✅ GROUPCHAT REPLY SENT VIA XMPP (Method 2)!");
-                             } else {
-                               await xmpp.send(jid, text);
-                               console.log("✅✅✅ DIRECT REPLY SENT VIA XMPP (Method 2)!");
-                             }
-                             return { ok: true, channel: "xmpp" };
-                           } catch (err) {
-                             console.error("❌ XMPP SEND ERROR (Method 2):", err);
-                             return { ok: false, error: String(err) };
-                           }
-                        };
-                        
-                         const dispatchStart = Date.now();
-                         
-                         // Fire-and-forget dispatch
-                         runtime.channel.reply.dispatchReplyWithBufferedBlockDispatcher({
-                           ctx: ctxPayload,
-                           cfg: ctx.cfg,
-                           sendText: sendText,
-                           dispatcherOptions: {},
-                         }).catch((err: any) => {
-                           console.error("Method 2 dispatch error (non-blocking):", err);
-                         });
-                         
-                         console.log(`✅ METHOD 2 dispatched (non-blocking)`);
-                      }
-                      
-                      console.log("=== DISPATCH COMPLETE ===");
-                    } catch (err) {
-                      console.error("❌❌❌ FATAL DISPATCH ERROR:", err);
-                      console.error("Error details:", err instanceof Error ? err.stack : err);
-                    }
-                  
-                  markAsProcessed(messageId);
-                  return;
+                       }
+                       
+                       console.log("=== DISPATCH ATTEMPTS COMPLETE ===");
+                     } catch (err) {
+                       console.error("❌❌❌ FATAL DISPATCH ERROR:", err);
+                       console.error("Error details:", err instanceof Error ? err.stack : err);
+                       dispatchError = err;
+                     }
+                   
+                   // Only mark as processed if dispatch succeeded
+                   if (dispatchSuccess) {
+                     console.log("✅ Dispatch succeeded - marking message as processed");
+                     markAsProcessed(messageId);
+                   } else {
+                     console.log("⚠️ Dispatch failed - message remains in queue for polling");
+                     console.log("⚠️ Dispatch error:", dispatchError || "Unknown error");
+                   }
+                   return;
                 } catch (err) {
                   console.error("❌ Error with fallback:", err);
                 }
@@ -2526,43 +2556,40 @@ gateway: {
                // Note: Other channel methods don't exist or aren't for inbound messages
            }
            
-           // Fallback: Try to find the correct inbound method on ctx
-           const inboundMethods = ['receiveText', 'receiveMessage', 'inbound', 'dispatch'];
-           
-            for (const methodName of inboundMethods) {
-              if (typeof ctx[methodName] === 'function') {
-                console.log(`✅ Found ctx.${methodName}`);
-                try {
-                  const senderBareJid = from.split('/')[0];
-                  if (methodName === 'receiveText' || methodName === 'receiveMessage') {
-                    ctx[methodName]({
-                      from: `xmpp:${senderBareJid}`,
-                      to: `xmpp:${config.jid}`,
-                      body: body,
-                      channel: "xmpp",
-                      accountId: account.accountId,
-                    });
-                  } else {
-                    ctx[methodName](senderBareJid, body, {
-                      channel: "xmpp",
-                      accountId: account.accountId,
-                    });
-                  }
-                  console.log(`✅ Message forwarded via ctx.${methodName}`);
-                  markAsProcessed(messageId);
-                  return;
-                } catch (err) {
-                  console.error(`❌ Error with ctx.${methodName}:`, err);
-                }
-              }
-            }
-           
-           console.log("🔴 No inbound method found - message queued for polling");
-           console.log("Available runtime.channel methods:", runtime?.channel ? Object.keys(runtime.channel) : "none");
-           
-            // Try to find dispatchInboundMessage or similar public API
-            // Check if runtime has dispatch methods
-            if (runtime?.dispatchInboundMessage) {
+            // Fallback: Try to find the correct inbound method on ctx
+            const inboundMethods = ['receiveText', 'receiveMessage', 'inbound', 'dispatch'];
+            
+             for (const methodName of inboundMethods) {
+               if (typeof ctx[methodName] === 'function' && !dispatchSuccess) {
+                 console.log(`✅ Found ctx.${methodName}`);
+                 try {
+                   const senderBareJid = from.split('/')[0];
+                   if (methodName === 'receiveText' || methodName === 'receiveMessage') {
+                     await ctx[methodName]({
+                       from: `xmpp:${senderBareJid}`,
+                       to: `xmpp:${config.jid}`,
+                       body: body,
+                       channel: "xmpp",
+                       accountId: account.accountId,
+                     });
+                   } else {
+                     await ctx[methodName](senderBareJid, body, {
+                       channel: "xmpp",
+                       accountId: account.accountId,
+                     });
+                   }
+                   console.log(`✅ Message forwarded via ctx.${methodName}`);
+                   dispatchSuccess = true;
+                   break;
+                 } catch (err) {
+                   console.error(`❌ Error with ctx.${methodName}:`, err);
+                   dispatchError = err;
+                 }
+               }
+             }
+            
+            // Try dispatchInboundMessage if ctx methods failed
+            if (runtime?.dispatchInboundMessage && !dispatchSuccess) {
               try {
                 console.log("Trying runtime.dispatchInboundMessage");
                  const senderBareJid = from.split('/')[0];
@@ -2570,18 +2597,18 @@ gateway: {
 
                 await runtime.dispatchInboundMessage({
                   ctx: ctxPayload,
-                  cfg: ctx.cfg, // Pass the config from ctx
+                  cfg: ctx.cfg,
                 });
                 console.log("✅ Message dispatched via runtime.dispatchInboundMessage");
-                markAsProcessed(messageId);
-                return;
+                dispatchSuccess = true;
               } catch (err) {
                 console.error("❌ Error with dispatchInboundMessage:", err);
+                dispatchError = err;
               }
             }
 
-            // Try channel.activity.record as last resort
-            if (runtime?.channel?.activity?.record) {
+            // Try channel.activity.record as last resort (only logs, doesn't count as success)
+            if (runtime?.channel?.activity?.record && !dispatchSuccess) {
               try {
                 console.log("Trying channel.activity.record");
                 const senderBareJid = from.split('/')[0];
@@ -2592,10 +2619,19 @@ gateway: {
                   action: "message:inbound",
                   data: { body: body },
                 });
-                console.log("✅ Activity recorded");
+                console.log("✅ Activity recorded (but dispatch still failed)");
               } catch (err) {
                 console.error("❌ Error recording activity:", err);
               }
+            }
+            
+            // Final success check - mark as processed only if dispatch succeeded
+            if (dispatchSuccess) {
+              console.log("✅ Dispatch succeeded - marking message as processed");
+              markAsProcessed(messageId);
+            } else {
+              console.log("⚠️ All dispatch methods failed - message remains in queue for polling");
+              console.log("⚠️ Last error:", dispatchError || "Unknown error");
             }
            
            // Note: api.emit doesn't exist, only api.on for listening
@@ -2674,7 +2710,8 @@ gateway: {
         logger: api.logger,
         getUnprocessedMessages,
         clearOldMessages,
-        messageQueue
+        messageQueue,
+        getContacts: () => contactsStore.get("default") || contactsStore.values().next().value || null
       });
     },
     { commands: ["xmpp"] }
