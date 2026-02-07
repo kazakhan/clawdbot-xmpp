@@ -102,8 +102,15 @@ openclaw xmpp sftp ls                                 # List files
 openclaw xmpp sftp rm <remote-name>                   # Delete file
 openclaw xmpp sftp help                               # Show help
 ```
+### Security Commands
+```bash
+openclaw xmpp encrypt-password  # Encrypt password in config file (hidden input)
+```
 
 ### vCard Commands
+
+XEP-0054 vCard support for bot profile management and querying users.
+
 ```bash
 openclaw xmpp vcard get              # View current vCard
 openclaw xmpp vcard set fn <value>   # Set Full Name
@@ -113,11 +120,17 @@ openclaw xmpp vcard set desc <value> # Set Description
 openclaw xmpp vcard set avatarUrl <value> # Set Avatar URL
 openclaw xmpp vcard get <jid>        # Query vCard from server for any user
 ```
+### In Chat vCard Profile
 
-### Security Commands
-```bash
-openclaw xmpp encrypt-password  # Encrypt password in config file (hidden input)
-```
+vCard commands:
+/vcard help - Show this help
+/vcard get - Show current vCard (from server)
+/vcard get <jid> - Show vCard for any user
+/vcard set fn <value> - Set Full Name
+/vcard set nickname <value> - Set Nickname
+/vcard set url <value> - Set URL
+/vcard set desc <value> - Set Description
+/vcard set avatarUrl <value> - Set Avatar URL 
 
 ## SFTP File Management
 
@@ -147,29 +160,7 @@ Add to `~/.openclaw/openclaw.json`:
 | User | JID local part |
 | Password | Same as XMPP (encrypted supported) |
 | Storage | Personal folder |
-
-## vCard Profile
-
-XEP-0054 vCard support for bot profile management and querying users.
-
-### Get Your vCard
-```bash
-openclaw xmpp vcard get
-```
-
-### Set Your vCard
-```bash
-openclaw xmpp vcard set fn "My Bot Name"
-openclaw xmpp vcard set nickname "bot"
-openclaw xmpp vcard set url "https://github.com/anomalyco/openclaw"
-openclaw xmpp vcard set desc "AI Assistant"
-openclaw xmpp vcard set avatarUrl "https://example.com/avatar.png"
-```
-
-### Query Any User's vCard
-```bash
-openclaw xmpp vcard get user@domain.com
-```
+`
 
 ## Features
 
