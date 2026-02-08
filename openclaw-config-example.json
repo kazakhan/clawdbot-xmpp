@@ -1,4 +1,3 @@
-{
   "plugins": {
     "entries": {
       "xmpp": {
@@ -15,10 +14,10 @@
           "service": "xmpp://your-server.com:5222",
           "domain": "your-server.com",
           "jid": "bot@your-server.com",
-          "password": "ENC:bd0c078992e6b19da4a52c4c047b9b00486a1a5b9a8d025317ebe660d33597959378f4d3fe6c9bd9",
+          "password": "PLAIN or ENCRYPTED PASS",
           "adminJid": "admin@your-server.com",
           "rooms": [],
-          "encryptionKey": "DpldYiYd/JrF5zw6L5H3Fj5dm8dKuHrkm6gb2s4pHuo="
+          "encryptionKey": "GENERATE THIS WITH THE CLI COMMAND"
         }
       }
     }
