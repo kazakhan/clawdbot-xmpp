@@ -2753,6 +2753,63 @@ gateway: {
     respond(true, { rooms: roomsWithNicks });
   });
 
+  api.registerGatewayMethod("xmpp.inviteToRoom", ({ params, respond }) => {
+    const { contact, room, reason } = params || {};
+    if (!contact || !room) {
+      respond(false, { error: "Missing required parameters: contact and room" });
+      return;
+    }
+    const client = xmppClients.get("default") || xmppClients.values().next().value;
+    if (!client) {
+      respond(false, { error: "XMPP client not connected" });
+      return;
+    }
+    try {
+      const xmpp = client.xmpp;
+      if (!xmpp) {
+        respond(false, { error: "XMPP connection not available" });
+        return;
+      }
+      const inviteReason = reason || "You are invited to this room";
+      const resolvedRoom = room.includes('@') ? room : `${room}@conference.${cfg.domain}`;
+      const message = xml("message", { to: resolvedRoom },
+        xml("x", { xmlns: "http://jabber.org/protocol/muc#user" },
+          xml("invite", { to: contact },
+            xml("reason", {}, inviteReason)
+          )
+        )
+      );
+      xmpp.send(message);
+      console.log(`Invited ${contact} to room ${resolvedRoom}`);
+      respond(true, { ok: true, contact, room: resolvedRoom });
+    } catch (err: any) {
+      respond(false, { error: err.message || String(err) });
+    }
+  });
+
+  api.registerGatewayMethod("xmpp.removeContact", ({ params, respond }) => {
+    const { jid } = params || {};
+    if (!jid) {
+      respond(false, { error: "Missing required parameter: jid" });
+      return;
+    }
+    const contacts = contactsStore.get("default") || contactsStore.values().next().value;
+    if (!contacts) {
+      respond(false, { error: "Contacts not available" });
+      return;
+    }
+    try {
+      const removed = contacts.remove(jid);
+      if (removed) {
+        respond(true, { ok: true, jid });
+      } else {
+        respond(false, { error: "Contact not found" });
+      }
+    } catch (err: any) {
+      respond(false, { error: err.message || String(err) });
+    }
+  });
+
   // Register CLI commands using registerCli
   api.registerCli(
     ({ program }) => {

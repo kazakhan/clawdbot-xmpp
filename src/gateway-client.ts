@@ -134,3 +134,21 @@ export async function getJoinedRooms(): Promise<Array<{ room: string; nick?: str
   const result = await callGatewayRpc<{ rooms: Array<{ room: string; nick?: string }> }>("xmpp.getJoinedRooms");
   return result?.rooms || [];
 }
+
+export async function inviteToRoom(contact: string, room: string, reason?: string): Promise<boolean> {
+  const result = await callGatewayRpc<{ ok: boolean; contact?: string; room?: string }>("xmpp.inviteToRoom", { contact, room, reason });
+  if (result?.ok) {
+    console.log(`Invited ${contact} to room ${room}`);
+    return true;
+  }
+  return false;
+}
+
+export async function removeContact(jid: string): Promise<boolean> {
+  const result = await callGatewayRpc<{ ok: boolean; jid?: string }>("xmpp.removeContact", { jid });
+  if (result?.ok) {
+    console.log(`Removed contact: ${jid}`);
+    return true;
+  }
+  return false;
+}

@@ -2,7 +2,7 @@ import { xml } from "@xmpp/client";
 import { spawn, execSync } from "child_process";
 import { fileURLToPath } from "node:url";
 import path from "path";
-import { joinRoom, leaveRoom, getJoinedRooms } from "./gateway-client.js";
+import { joinRoom, leaveRoom, getJoinedRooms, inviteToRoom, removeContact } from "./gateway-client.js";
 
 // Simple roster functions without fs-extra
 let roster: Record<string, { nick?: string }> = {};
@@ -307,6 +307,68 @@ export function registerXmppCli({
         }
       } catch (err: any) {
         console.error(`Error adding contact: ${err.message}`);
+      }
+    });
+
+  // Subcommand: remove <jid>
+  xmpp
+    .command("remove <jid>")
+    .description("Remove contact from whitelist")
+    .action(async (jid: string) => {
+      if (!jid || !jid.includes('@')) {
+        console.error("Invalid JID format. Expected: user@domain.com");
+        console.error("Usage: openclaw xmpp remove <jid>");
+        return;
+      }
+
+      try {
+        const contacts = getContacts?.();
+        if (contacts?.remove) {
+          const removed = contacts.remove(jid);
+          if (removed) {
+            console.log(`✓ Contact removed: ${jid}`);
+          } else {
+            console.error("Contact not found in whitelist");
+          }
+        } else {
+          const path = await import('path');
+          const fs = await import('fs');
+          const dataDir = process.env.OPENCLAW_DATA || path.join(process.cwd(), 'data');
+          
+          if (!fs.existsSync(dataDir)) {
+            fs.mkdirSync(dataDir, { recursive: true });
+          }
+          
+          const { Contacts } = await import('./contacts.js');
+          const contactsInstance = new Contacts(dataDir);
+          
+          const removed = contactsInstance.remove(jid);
+          if (removed) {
+            console.log(`✓ Contact removed: ${jid}`);
+          } else {
+            console.error("Contact not found in whitelist");
+          }
+        }
+      } catch (err: any) {
+        console.error(`Error removing contact: ${err.message}`);
+      }
+    });
+
+  // Subcommand: invite <contact> <room> [reason]
+  xmpp
+    .command("invite <contact> <room> [reason]")
+    .description("Invite contact to MUC room")
+    .action(async (contact: string, room: string, reason?: string) => {
+      if (!contact || !contact.includes('@')) {
+        console.error("Invalid contact JID format. Expected: user@domain.com");
+        console.error("Usage: openclaw xmpp invite <contact> <room> [reason]");
+        return;
+      }
+
+      const success = await inviteToRoom(contact, room, reason);
+      if (!success) {
+        console.error("Failed to invite contact. Make sure the gateway is running.");
+        process.exit(1);
       }
     });
 
