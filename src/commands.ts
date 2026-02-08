@@ -354,17 +354,33 @@ export function registerXmppCli({
       }
     });
 
-  // Subcommand: invite <contact> <room> [reason]
+  // Subcommand: invite <contact> <room> [reason] [--password <password>]
   xmpp
     .command("invite <contact> <room> [reason]")
-    .description("Invite contact to MUC room")
-    .action(async (contact: string, room: string, reason?: string) => {
+    .description("Invite contact to MUC room via direct invitation")
+    .option("--password <password>", "Room password (optional)")
+    .action(async (contact: string, room: string, reason: string | undefined, options: { password?: string }) => {
       if (!contact || !contact.includes('@')) {
         console.error("Invalid contact JID format. Expected: user@domain.com");
-        console.error("Usage: openclaw xmpp invite <contact> <room> [reason]");
+        console.error("Usage: openclaw xmpp invite <contact> <room> [reason] [--password <password>]");
         return;
       }
 
+      const password = options.password;
+
+      // Try direct client first
+      const client = getXmppClient();
+      if (client && client.inviteToRoom) {
+        try {
+          await client.inviteToRoom(contact, room, reason, password);
+          console.log(`Invite sent to ${contact} for room ${room}`);
+          return;
+        } catch (err) {
+          console.log("Direct send failed, trying via gateway...");
+        }
+      }
+
+      // Fall back to gateway RPC
       const success = await inviteToRoom(contact, room, reason);
       if (!success) {
         console.error("Failed to invite contact. Make sure the gateway is running.");

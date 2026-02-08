@@ -5,7 +5,38 @@ All notable changes to the OpenClaw XMPP plugin will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.6.9] - 2026-02-08
+## [1.7.1] - 2026-02-08
+
+### Fixed
+- **XMPP Direct Invitations**: Fixed `openclaw xmpp invite` command to properly send direct room invitations using jabber:x:conference namespace.
+
+#### Bug
+The invite command was generating malformed XML where invitation attributes (jid, reason, password) were passed as a child node instead of being spread as attributes on the `<x>` element. This resulted in invalid XML that XMPP clients couldn't parse.
+
+#### Root Cause
+In `index.ts`, the XML construction used incorrect parameter passing:
+```typescript
+xml("x", { xmlns: "jabber:x:conference" }, inviteAttrs) // WRONG - inviteAttrs as child node
+```
+
+#### Solution
+Changed to spread operator to properly format attributes:
+```typescript
+xml("x", { xmlns: "jabber:x:conference", ...inviteAttrs }) // CORRECT - spread as attributes
+```
+
+#### Changes
+- `index.ts:~1820` - Fixed XML attribute spreading in `xmppClient.inviteToRoom()` method
+- Added debug logging for invite XML generation and transmission
+- Command now generates correct XML format:
+  ```xml
+  <message to="contact@domain.com">
+    <x xmlns="jabber:x:conference" jid="room@conference.domain" [reason="..."] [password="..."]/>
+  </message>
+  ```
+
+#### New Command Syntax
+- `openclaw xmpp invite <contact> <room> [reason] [--password <password>]`
 
 ### Fixed
 - **CLI xmpp join command**: Fixed the `openclaw xmpp join` command to properly connect to the running gateway instead of spawning a child process that failed to access the XMPP client. The command now uses `openclaw gateway call` to invoke RPC methods on the gateway process, which has direct access to the XMPP client. Added three new gateway RPC methods: `xmpp.joinRoom`, `xmpp.leaveRoom`, and `xmpp.getJoinedRooms`. Removed the failed `internal-join` subcommand and `joinViaGateway()` function that attempted to route through child processes.

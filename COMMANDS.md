@@ -54,6 +54,25 @@ Join a MUC (multi-user chat) room.
 openclaw xmpp join room@conference.example.com mynick
 ```
 
+### `openclaw xmpp invite <contact> <room> [reason] [--password <password>]`
+Invite a contact to a MUC room via direct XMPP invitation using jabber:x:conference namespace.
+
+```bash
+# Invite with just room name (uses conference.domain from config)
+openclaw xmpp invite user@example.com general
+
+# Invite with full room JID
+openclaw xmpp invite user@example.com general@conference.example.com
+
+# Invite with reason
+openclaw xmpp invite user@example.com general "Join the discussion!"
+
+# Invite with reason and password
+openclaw xmpp invite user@example.com general "Secret AI bot business!" --password secret123
+```
+
+This sends a direct invitation message to the contact containing the room details.
+
 ### `openclaw xmpp poll`
 Poll and display queued unprocessed messages.
 

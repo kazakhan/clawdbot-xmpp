@@ -1802,24 +1802,41 @@ async function startXmpp(cfg: any, contacts: any, log: any, onMessage: (from: st
         const iqStanza = xml("iq", { to, type, id }, payload);
         return xmpp.send(iqStanza);
       },
-      sendFile: async (to: string, filePath: string, text?: string, isGroupChat?: boolean) => {
-        console.log(`XMPP sendFile called: to=${to}, file=${filePath}, text=${text}, group=${isGroupChat}`);
-        try {
-          // First try HTTP Upload
-          await sendFileWithHTTPUpload(to, filePath, text, isGroupChat);
-          return true;
-        } catch (httpErr) {
-          console.log("HTTP Upload failed, falling back to SI transfer:", httpErr);
-          try {
-            await sendFileWithSITransfer(to, filePath, text, isGroupChat);
-            return true;
-          } catch (siErr) {
-            console.error("All file transfer methods failed:", siErr);
-            throw new Error(`File transfer failed: ${httpErr.message}, ${siErr.message}`);
-          }
-        }
-      }
-    };
+       sendFile: async (to: string, filePath: string, text?: string, isGroupChat?: boolean) => {
+         console.log(`XMPP sendFile called: to=${to}, file=${filePath}, text=${text}, group=${isGroupChat}`);
+         try {
+           // First try HTTP Upload
+           await sendFileWithHTTPUpload(to, filePath, text, isGroupChat);
+           return true;
+         } catch (httpErr) {
+           console.log("HTTP Upload failed, falling back to SI transfer:", httpErr);
+           try {
+             await sendFileWithSITransfer(to, filePath, text, isGroupChat);
+             return true;
+           } catch (siErr) {
+             console.error("All file transfer methods failed:", siErr);
+             throw new Error(`File transfer failed: ${httpErr.message}, ${siErr.message}`);
+           }
+         }
+       },
+       inviteToRoom: async (contact: string, room: string, reason?: string, password?: string) => {
+         const resolvedRoom = resolveRoomJid(room);
+         const inviteAttrs: any = { jid: resolvedRoom };
+         if (reason) inviteAttrs.reason = reason;
+         if (password) inviteAttrs.password = password;
+         
+         const message = xml("message", { to: contact },
+           xml("x", { xmlns: "jabber:x:conference", ...inviteAttrs })
+         );
+         
+         debugLog(`Sending invite XML: ${message.toString()}`);
+         console.log(`[INVITE DEBUG] Contact: ${contact}, Room: ${resolvedRoom}`);
+         console.log(`[INVITE DEBUG] XML: ${message.toString()}`);
+         
+         await xmpp.send(message);
+         console.log(`Invited ${contact} to room ${resolvedRoom}`);
+       }
+     };
 
   xmppClient.roomNicks = roomNicks;
 
@@ -2754,7 +2771,7 @@ gateway: {
   });
 
   api.registerGatewayMethod("xmpp.inviteToRoom", ({ params, respond }) => {
-    const { contact, room, reason } = params || {};
+    const { contact, room, reason, password } = params || {};
     if (!contact || !room) {
       respond(false, { error: "Missing required parameters: contact and room" });
       return;
@@ -2765,23 +2782,8 @@ gateway: {
       return;
     }
     try {
-      const xmpp = client.xmpp;
-      if (!xmpp) {
-        respond(false, { error: "XMPP connection not available" });
-        return;
-      }
-      const inviteReason = reason || "You are invited to this room";
-      const resolvedRoom = room.includes('@') ? room : `${room}@conference.${cfg.domain}`;
-      const message = xml("message", { to: resolvedRoom },
-        xml("x", { xmlns: "http://jabber.org/protocol/muc#user" },
-          xml("invite", { to: contact },
-            xml("reason", {}, inviteReason)
-          )
-        )
-      );
-      xmpp.send(message);
-      console.log(`Invited ${contact} to room ${resolvedRoom}`);
-      respond(true, { ok: true, contact, room: resolvedRoom });
+      client.inviteToRoom(contact, room, reason, password);
+      respond(true, { ok: true, contact, room });
     } catch (err: any) {
       respond(false, { error: err.message || String(err) });
     }
